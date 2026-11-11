@@ -3,7 +3,7 @@
 All notable changes to FavoriteLauncher. Versions follow [Semantic Versioning](https://semver.org/):
 MAJOR for incompatible changes (for example to the ini format), MINOR for new features, PATCH for bug fixes.
 
-## [Unreleased]
+## [1.4.0] - 2026-11-11
 
 ### Added
 - Tray menu item **What's new** opens the changelog. (#14)
