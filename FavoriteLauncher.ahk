@@ -28,6 +28,9 @@ global AppIconFile := AppDir "\FavoriteLauncher.ico"
 global ChangelogUrl := "https://github.com/kennethaar/FavoriteLauncher/blob/main/CHANGELOG.md"
 global StartupShortcut := A_Startup "\FavoriteLauncher.lnk"
 global WelcomeGui := "", WelcomeStartup := ""
+global LatestReleaseApi := "https://api.github.com/repos/kennethaar/FavoriteLauncher/releases/latest"
+global UpdateBannerText := "", UpdateBannerLink := "", UpdateBannerClose := ""
+global UpdateVersion := "", UpdateUrl := "", UpdateRequest := ""
 
 ; Start only when run directly. The test suite includes this file without starting the app.
 if A_IsCompiled || A_LineFile = A_ScriptFullPath
@@ -53,6 +56,7 @@ StartLauncher() {
     RegisterAllHotkeys()
     CreateMainGui()
     ShowOnboardingIfNeeded()
+    SetTimer(CheckForUpdate, -5000)    ; on every start, which includes after a reboot
 }
 
 ConfigureTrayMenu() {
@@ -69,6 +73,128 @@ ConfigureTrayMenu() {
     A_TrayMenu.Add("About", ShowAbout)
     A_TrayMenu.Add()
     A_TrayMenu.Add("Exit", ExitLauncher)
+}
+
+; Asks GitHub for the latest release without blocking the app; the answer is
+; handled by FinishUpdateCheck. A failed check is silent: it is tried again on the next start.
+CheckForUpdate() {
+    global UpdateRequest, LatestReleaseApi
+    try {
+        UpdateRequest := ComObject("WinHttp.WinHttpRequest.5.1")
+        UpdateRequest.Open("GET", LatestReleaseApi, true)
+        UpdateRequest.SetRequestHeader("User-Agent", "FavoriteLauncher")
+        UpdateRequest.Send()
+        SetTimer(FinishUpdateCheck, 500)
+    }
+}
+
+FinishUpdateCheck() {
+    global UpdateRequest
+    static MaxChecks := 60    ; 30 seconds
+    static checks := 0
+
+    checks += 1
+    try {
+        if !UpdateRequest.WaitForResponse(0) {
+            if checks >= MaxChecks
+                SetTimer(FinishUpdateCheck, 0)
+            return
+        }
+    } catch {
+        SetTimer(FinishUpdateCheck, 0)
+        return
+    }
+
+    SetTimer(FinishUpdateCheck, 0)
+    try {
+        if UpdateRequest.Status != 200
+            return
+        release := ParseLatestRelease(UpdateRequest.ResponseText)
+    } catch {
+        return
+    }
+    if ShouldShowUpdate(release.Version)
+        ShowUpdateBanner(release.Version, release.Url)
+}
+
+; 1 if first is newer, -1 if older, 0 if equal. Missing parts count as 0.
+CompareVersions(first, second) {
+    firstParts := StrSplit(first, ".")
+    secondParts := StrSplit(second, ".")
+    loop Max(firstParts.Length, secondParts.Length) {
+        a := A_Index <= firstParts.Length && IsInteger(firstParts[A_Index]) ? Integer(firstParts[A_Index]) : 0
+        b := A_Index <= secondParts.Length && IsInteger(secondParts[A_Index]) ? Integer(secondParts[A_Index]) : 0
+        if a != b
+            return a > b ? 1 : -1
+    }
+    return 0
+}
+
+; Version and release notes page from GitHub's "latest release" answer.
+ParseLatestRelease(json) {
+    version := RegExMatch(json, '"tag_name"\s*:\s*"v?([0-9.]+)"', &tagMatch) ? tagMatch[1] : ""
+    url := RegExMatch(json, '"html_url"\s*:\s*"([^"]+/releases/[^"]+)"', &urlMatch) ? urlMatch[1] : ""
+    return {Version: version, Url: url}
+}
+
+ShouldShowUpdate(latestVersion) {
+    global AppVersion, ConfigFile
+    if latestVersion = "" || CompareVersions(latestVersion, AppVersion) <= 0
+        return false
+    dismissed := IniRead(ConfigFile, "Settings", "DismissedUpdate", "")
+    return dismissed = "" || CompareVersions(latestVersion, dismissed) > 0
+}
+
+ShowUpdateBanner(version, url) {
+    global UpdateBannerText, UpdateBannerLink, UpdateBannerClose, UpdateVersion, UpdateUrl
+    alreadyShown := UpdateVersion != ""
+    UpdateVersion := version
+    UpdateUrl := url
+    UpdateBannerText.Text := "  ⚑  Version " version " is available."
+    if alreadyShown
+        return
+
+    for control in [UpdateBannerText, UpdateBannerLink, UpdateBannerClose]
+        control.Visible := true
+    MoveLauncherControlsDown(GetUpdateBannerSpace())
+}
+
+DismissUpdateBanner(*) {
+    global UpdateBannerText, UpdateBannerLink, UpdateBannerClose, UpdateVersion, ConfigFile
+    if UpdateVersion = ""
+        return
+
+    IniWrite(UpdateVersion, ConfigFile, "Settings", "DismissedUpdate")
+    UpdateVersion := ""
+    for control in [UpdateBannerText, UpdateBannerLink, UpdateBannerClose]
+        control.Visible := false
+    MoveLauncherControlsDown(-GetUpdateBannerSpace())
+}
+
+OpenUpdateNotes(*) {
+    global UpdateUrl, ChangelogUrl
+    try Run(UpdateUrl != "" ? UpdateUrl : ChangelogUrl)
+    catch Error as err
+        MsgBox("Could not open the release notes:`n`n" err.Message, "Favorite Launcher", "Iconx 0x40000")
+}
+
+; Banner height plus the gap below it.
+GetUpdateBannerSpace() {
+    global UpdateBannerText
+    UpdateBannerText.GetPos(, , , &bannerHeight)
+    return bannerHeight + 8
+}
+
+; Moves everything below the banner, then refits the window.
+MoveLauncherControlsDown(distance) {
+    global MainGui, SearchBox, FavoritesList, AddButton, FooterText
+    for control in [SearchBox, FavoritesList, AddButton, FooterText] {
+        control.GetPos(, &y)
+        control.Move(, y + distance)
+    }
+    FitListToFavorites()
+    if DllCall("IsWindowVisible", "Ptr", MainGui.Hwnd)
+        MainGui.Show("AutoSize NA")
 }
 
 IsStartWithWindows() {
@@ -221,11 +347,22 @@ ExitLauncher(*) {
 
 CreateMainGui() {
     global MainGui, SearchBox, FavoritesList, FooterText, FavoriteImageList, AddButton
+    global UpdateBannerText, UpdateBannerLink, UpdateBannerClose, UpdateVersion
 
     MainGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", "FavoriteLauncher")
     MainGui.SetFont("s9", "Segoe UI")
     MainGui.MarginX := 12
     MainGui.MarginY := 12
+
+    ; Update banner: hidden until a newer version is found. Shown above the search box.
+    UpdateBannerText := MainGui.AddText("xm ym w340 h26 +0x200 Hidden BackgroundFFF4CE")
+    MainGui.SetFont("underline c0067C0")
+    UpdateBannerLink := MainGui.AddText("x+0 yp w100 h26 +0x200 Hidden BackgroundFFF4CE", "What's new")
+    UpdateBannerLink.OnEvent("Click", OpenUpdateNotes)
+    MainGui.SetFont("norm cDefault")
+    UpdateBannerClose := MainGui.AddText("x+0 yp w40 h26 +0x200 Center Hidden BackgroundFFF4CE", "✕")
+    UpdateBannerClose.OnEvent("Click", DismissUpdateBanner)
+    UpdateVersion := ""
 
     SearchBox := MainGui.AddEdit("xm ym w480 h26")
     SetEditPlaceholder(SearchBox, "Type to search...")

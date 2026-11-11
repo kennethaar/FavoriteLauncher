@@ -8,6 +8,7 @@ MAJOR for incompatible changes (for example to the ini format), MINOR for new fe
 ### Added
 - Tray menu item **What's new** opens the changelog. (#14)
 - **Start with Windows**: a checkbox in the first-run welcome window (on by default) and a checkmark item in the tray menu. (#13)
+- **Update banner**: when GitHub has a newer release, a banner above the search box says so. **What's new** opens the release notes; ✕ hides it until the next version. The check runs each time the app starts. (#12)
 
 ### Changed
 - A single click on the tray icon opens the launcher. The first tray item is now called **Open launcher**. (#14)

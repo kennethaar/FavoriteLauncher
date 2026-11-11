@@ -90,6 +90,13 @@ RunAllTests([
     Test_StartWithWindows_TrayItemTogglesShortcut,
     Test_Welcome_StartWithWindowsCheckedByDefault,
     Test_Welcome_UncheckedRemovesShortcut,
+
+    ; Update banner
+    Test_CompareVersions_ComparesEachNumber,
+    Test_ParseLatestRelease_ReadsVersionAndUrl,
+    Test_ShouldShowUpdate_OnlyNewerAndNotDismissed,
+    Test_UpdateBanner_ShowsAboveSearch,
+    Test_UpdateBanner_DismissHidesIt,
 ])
 
 ; ---------------------------------------------------------------------------
@@ -758,7 +765,77 @@ Test_Welcome_UncheckedRemovesShortcut() {
 }
 
 ; ---------------------------------------------------------------------------
+; Update banner (no network: the GitHub answer is passed in)
+
+Test_CompareVersions_ComparesEachNumber() {
+    AssertEqual(CompareVersions("1.10.0", "1.9.0"), 1, "1.10.0 is newer than 1.9.0")
+    AssertEqual(CompareVersions("1.3.0", "1.3.0"), 0, "same version")
+    AssertEqual(CompareVersions("1.2.9", "1.3.0"), -1, "1.2.9 is older than 1.3.0")
+    AssertEqual(CompareVersions("2.0", "1.9.9"), 1, "missing parts count as 0")
+}
+
+Test_ParseLatestRelease_ReadsVersionAndUrl() {
+    json := '{"url":"x","html_url":"https://github.com/kennethaar/FavoriteLauncher/releases/tag/v1.4.0",'
+        . '"tag_name":"v1.4.0","name":"1.4.0"}'
+    release := ParseLatestRelease(json)
+    AssertEqual(release.Version, "1.4.0", "version without the v")
+    AssertEqual(release.Url, "https://github.com/kennethaar/FavoriteLauncher/releases/tag/v1.4.0", "release notes page")
+    AssertEqual(ParseLatestRelease('{"message":"Not Found"}').Version, "", "no release")
+}
+
+Test_ShouldShowUpdate_OnlyNewerAndNotDismissed() {
+    global ConfigFile
+    try IniDelete(ConfigFile, "Settings", "DismissedUpdate")
+    AssertFalse(ShouldShowUpdate(""), "no answer from GitHub")
+    AssertFalse(ShouldShowUpdate(AppVersion), "same version as running")
+    AssertTrue(ShouldShowUpdate("99.0.0"), "newer version")
+    IniWrite("99.0.0", ConfigFile, "Settings", "DismissedUpdate")
+    AssertFalse(ShouldShowUpdate("99.0.0"), "dismissed version stays hidden")
+    AssertTrue(ShouldShowUpdate("99.1.0"), "an even newer version shows again")
+    IniDelete(ConfigFile, "Settings", "DismissedUpdate")
+}
+
+Test_UpdateBanner_ShowsAboveSearch() {
+    SetUpLauncher(3)
+    SearchBox.GetPos(, &searchYBefore)
+    AssertFalse(IsVisibleControl(UpdateBannerText), "no banner before an update is found")
+
+    ShowUpdateBanner("99.0.0", "https://example.com/release")
+    MainGui.Show("AutoSize Hide")
+    AssertTrue(IsVisibleControl(UpdateBannerText), "banner shown")
+    AssertTrue(InStr(UpdateBannerText.Text, "Version 99.0.0 is available"), "says which version: " UpdateBannerText.Text)
+    AssertEqual(UpdateBannerLink.Text, "What's new", "link text")
+    AssertTrue(IsVisibleControl(UpdateBannerClose), "close button shown")
+    UpdateBannerText.GetPos(, &bannerY, , &bannerHeight)
+    SearchBox.GetPos(, &searchY)
+    AssertTrue(searchY >= bannerY + bannerHeight, "search box is below the banner")
+    AssertTrue(searchY > searchYBefore, "search box moved down")
+    AssertTrue(RowsThatFit() >= 3, "all favorites still visible (fits " RowsThatFit() ")")
+}
+
+Test_UpdateBanner_DismissHidesIt() {
+    global ConfigFile
+    SetUpLauncher(3)
+    SearchBox.GetPos(, &searchYBefore)
+    ShowUpdateBanner("99.0.0", "https://example.com/release")
+    DismissUpdateBanner()
+    try {
+        AssertFalse(IsVisibleControl(UpdateBannerText), "banner hidden")
+        SearchBox.GetPos(, &searchY)
+        AssertEqual(searchY, searchYBefore, "search box back at the top")
+        AssertEqual(IniRead(ConfigFile, "Settings", "DismissedUpdate", ""), "99.0.0", "dismissed version remembered")
+    } finally {
+        try IniDelete(ConfigFile, "Settings", "DismissedUpdate")
+    }
+}
+
+; ---------------------------------------------------------------------------
 ; Helpers
+
+IsVisibleControl(control) {
+    static WS_VISIBLE := 0x10000000
+    return (ControlGetStyle(control) & WS_VISIBLE) != 0
+}
 
 UseTestStartupFolder() {
     global StartupShortcut, TestDir

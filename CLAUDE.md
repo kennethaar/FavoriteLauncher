@@ -31,7 +31,7 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 - Semantic Versioning `MAJOR.MINOR.PATCH`: MAJOR = incompatible change (e.g. ini format), MINOR = new feature, PATCH = bug fix only.
 - The version is in three places that must match (a test checks this): `global AppVersion` and `;@Ahk2Exe-SetVersion` in `FavoriteLauncher.ahk`, and a `## [x.y.z] - YYYY-MM-DD` section in `CHANGELOG.md`.
 - The version is shown in the About window and the tray tooltip.
-- Each release is tagged `vX.Y.Z` in git.
+- Each release is tagged `vX.Y.Z` in git and published as a GitHub Release (`gh release create vX.Y.Z`) with its changelog section as notes. The update check reads `releases/latest`, so a version without a GitHub Release is never offered.
 
 ## Behavior
 
@@ -39,13 +39,14 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 - In the launcher (`#HotIf IsLauncherActive()`): type to filter, Up/Down to move, Enter to open, F2 edit, Delete remove, Esc hide.
 - Each favorite can have an optional direct global hotkey, registered via `Hotkey()` in `RegisterAllHotkeys()`.
 - Opening a folder while a standard file dialog (`#32770`) is active navigates that dialog instead of opening Explorer (`NavigateFileDialog`).
+- Update check: 5 s after start (also after a reboot) the app asks GitHub for the latest release, without blocking. A newer version shows a yellow banner above the search box: "What's new" opens the release page, ✕ hides it until an even newer version appears.
 - Tray menu: Open launcher (default; single click on the tray icon) / Start with Windows (checkmark) / What's new (changelog on GitHub) / About / Exit.
 - Start with Windows = a shortcut in the user's Startup folder (`StartupShortcut`); tests point it at a temp folder. First run shows a welcome window with a "Start with Windows" checkbox (checked).
 
 ## Data
 
 - Favorites persist in `FavoriteLauncher.ini` next to the script (gitignored — user-specific).
-  - `[Settings]`: `Count`, `OnboardingShown`
+  - `[Settings]`: `Count`, `OnboardingShown`, `DismissedUpdate` (the update version whose banner was closed)
   - `[FavoriteN]`: `Name`, `Target`, `Type`, `Hotkey`, and for commands `KeepOpen` (1 = console stays open via `cmd /k`, 0 = hidden via `cmd /c`; missing = 1)
 - Favorite types: `folder`, `document`, `program`, `link`, `command`. Unknown types load as `folder`.
 - If the ini is missing, defaults (Desktop, Downloads, Pictures) are created and the onboarding message is shown once.
