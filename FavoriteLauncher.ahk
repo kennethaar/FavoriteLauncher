@@ -1,6 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-;@Ahk2Exe-SetVersion 1.1.0
+;@Ahk2Exe-SetVersion 1.2.0
 ;@Ahk2Exe-SetMainIcon FavoriteLauncher.ico
 ;@Ahk2Exe-SetDescription FavoriteLauncher
 ;@Ahk2Exe-SetProductName FavoriteLauncher
@@ -8,7 +8,7 @@
 SendMode("Input")
 
 ; Semantic version (MAJOR.MINOR.PATCH). Keep in sync with ;@Ahk2Exe-SetVersion and CHANGELOG.md.
-global AppVersion := "1.1.0"
+global AppVersion := "1.2.0"
 
 ; Folder of this file, also when the test suite includes it from tests\.
 global AppDir := A_IsCompiled ? A_ScriptDir : RegExReplace(A_LineFile, "\\[^\\]+$")
@@ -19,8 +19,8 @@ global RegisteredHotkeys := Map()
 global MainGui := "", SearchBox := "", FavoritesList := "", FooterText := ""
 global AddButton := "", ListRowHeight := 0
 global AboutGui := ""
-global EditorGui := "", EditorName := "", EditorType := "", EditorTarget := ""
-global EditorHotkey := "", EditorBrowseButton := ""
+global EditorGui := "", EditorName := "", EditorTypeValue := "folder", EditorTarget := ""
+global EditorHotkey := "", EditorShortcutStatus := "", EditorAutoName := "", EditorReplacedGui := ""
 global EditingIndex := 0, SelectedRow := 0
 global FavoriteImageList := 0, IconCache := Map()
 global AppIconFile := AppDir "\FavoriteLauncher.ico"
@@ -559,16 +559,7 @@ UpdateFooter(*) {
 
     SelectedRow := Max(1, Min(SelectedRow, VisibleFavorites.Length))
     favorite := VisibleFavorites[SelectedRow].Favorite
-
-    switch favorite.Type {
-        case "folder": typeText := "Folder"
-        case "document": typeText := "Document"
-        case "program": typeText := "Program"
-        case "link": typeText := "Web address"
-        default: typeText := "Favorite"
-    }
-
-    FooterText.Text := typeText "  |  Enter to open"
+    FooterText.Text := TypeToLabel(favorite.Type) "  |  Enter to open"
 }
 
 OpenSelected(*) {
@@ -641,7 +632,7 @@ NavigateFileDialog(path) {
 }
 
 AddFavorite(*) {
-    OpenEditor()
+    ShowAddStep1()
 }
 
 EditSelected(*) {
@@ -650,86 +641,173 @@ EditSelected(*) {
         OpenEditor(index)
 }
 
-OpenEditor(index := 0) {
-    global Favorites, MainGui
-    global EditorGui, EditorName, EditorType, EditorTarget
-    global EditorHotkey, EditorBrowseButton, EditingIndex
+; The Edit window for Favorites[index].
+OpenEditor(index) {
+    global Favorites
+    favorite := Favorites[index]
+    ShowDetailsStep(index, {
+        Name: favorite.Name,
+        Target: favorite.Target,
+        Type: favorite.Type,
+        Hotkey: favorite.Hotkey
+    })
+}
 
+; Add favorite, step 1: what to add. Choosing a type opens its picker right away.
+ShowAddStep1(*) {
+    global EditorGui, EditingIndex
+    static ButtonWidth := 150, Gap := 10
+
+    EditingIndex := 0
+    CreateEditorWindow("Add favorite")
+
+    EditorGui.AddText("xm ym c666666", "Step 1 of 2")
+    EditorGui.SetFont("s12 w600")
+    EditorGui.AddText("xm y+2", "What do you want to add?")
+    EditorGui.SetFont("s10 norm")
+
+    folderButton := EditorGui.AddButton("xm y+14 w" ButtonWidth " h34", "&Folder...")
+    folderButton.OnEvent("Click", ChooseAddType.Bind("folder"))
+    documentButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h34", "&Document...")
+    documentButton.OnEvent("Click", ChooseAddType.Bind("document"))
+    programButton := EditorGui.AddButton("xm y+" Gap " w" ButtonWidth " h34", "&Program...")
+    programButton.OnEvent("Click", ChooseAddType.Bind("program"))
+    linkButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h34", "&Web address")
+    linkButton.OnEvent("Click", ChooseAddType.Bind("link"))
+
+    cancelX := EditorGui.MarginX + 2 * ButtonWidth + Gap - 90
+    cancelButton := EditorGui.AddButton("x" cancelX " y+20 w90 h30", "Cancel")
+    cancelButton.OnEvent("Click", CloseEditor)
+
+    ShowEditorWindow()
+    folderButton.Focus()
+}
+
+ChooseAddType(type, *) {
+    if type = "link" {
+        ContinueWithTarget("link", "")
+        return
+    }
+
+    target := PickTarget(type)
+    if target != ""
+        ContinueWithTarget(type, target)
+}
+
+; Add favorite, step 2, for the chosen location.
+ContinueWithTarget(type, target) {
+    name := target = "" ? "" : GetDefaultName(target, type)
+    ShowDetailsStep(0, {Name: name, Target: target, Type: type, Hotkey: ""})
+}
+
+GoBackToStep1(*) {
+    ShowAddStep1()
+}
+
+; Add step 2 (index = 0) or the Edit window: location, then name, then shortcut.
+ShowDetailsStep(index, draft) {
+    global EditorGui, EditorName, EditorTarget, EditorHotkey, EditorShortcutStatus
+    global EditorTypeValue, EditorAutoName, EditingIndex
+    static FieldWidth := 470, ButtonWidth := 90, Gap := 8
+
+    isAdding := index = 0
     EditingIndex := index
-    if IsObject(EditorGui)
-        try EditorGui.Destroy()
+    EditorTypeValue := draft.Type
+    ; The name follows the location until the user types a name of their own.
+    EditorAutoName := draft.Name = GetDefaultName(draft.Target, draft.Type) ? draft.Name : ""
 
-    windowTitle := index = 0 ? "Add favorite" : "Edit favorite"
+    CreateEditorWindow(isAdding ? "Add favorite" : "Edit favorite")
+
+    if isAdding
+        EditorGui.AddText("xm ym c666666", "Step 2 of 2")
+    EditorGui.AddText(isAdding ? "xm y+8" : "xm ym", TypeToLabel(draft.Type))
+    if draft.Type = "link" {
+        EditorTarget := EditorGui.AddEdit("xm y+5 w" FieldWidth " h30", draft.Target)
+        SetEditPlaceholder(EditorTarget, "example.com")
+    } else {
+        EditorTarget := EditorGui.AddEdit("xm y+5 w" (FieldWidth - 92 - Gap) " h30", draft.Target)
+        changeButton := EditorGui.AddButton("x+" Gap " yp w92 h30", "Change...")
+        changeButton.OnEvent("Click", BrowseEditorTarget)
+    }
+    EditorTarget.OnEvent("Change", SuggestEditorName)
+
+    EditorGui.AddText("xm y+14", "Name")
+    EditorName := EditorGui.AddEdit("xm y+5 w" FieldWidth " h30", draft.Name)
+
+    EditorGui.AddText("xm y+14", "Direct shortcut (optional)")
+    EditorHotkey := EditorGui.AddHotkey("xm y+5 w220 h30")
+    EditorHotkey.Value := draft.Hotkey
+    EditorHotkey.OnEvent("Change", ResetShortcutStatus)
+    testButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h30", "Test")
+    testButton.OnEvent("Click", TestEditorShortcut)
+    clearButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h30", "Clear")
+    clearButton.OnEvent("Click", ClearEditorShortcut)
+    EditorShortcutStatus := EditorGui.AddText("xm y+8 w" FieldWidth " r2 c666666")
+    ResetShortcutStatus()
+
+    buttonCount := isAdding ? 3 : 2
+    firstX := EditorGui.MarginX + FieldWidth - buttonCount * ButtonWidth - (buttonCount - 1) * Gap
+    if isAdding {
+        backButton := EditorGui.AddButton("x" firstX " y+14 w" ButtonWidth " h32", "< Back")
+        backButton.OnEvent("Click", GoBackToStep1)
+        saveButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h32 Default", "Add")
+    } else {
+        saveButton := EditorGui.AddButton("x" firstX " y+14 w" ButtonWidth " h32 Default", "Save")
+    }
+    saveButton.OnEvent("Click", SaveEditor)
+    cancelButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h32", "Cancel")
+    cancelButton.OnEvent("Click", CloseEditor)
+
+    ShowEditorWindow()
+    if draft.Target = "" {
+        EditorTarget.Focus()
+        return
+    }
+    EditorName.Focus()
+    SendMessage(0xB1, 0, -1, EditorName)    ; EM_SETSEL: select the name so typing replaces it
+}
+
+; Starts a new editor window. The previous one stays until the new one is shown,
+; so focus never falls to another app between steps.
+CreateEditorWindow(title) {
+    global EditorGui, EditorReplacedGui, MainGui
+
+    EditorReplacedGui := EditorGui
     ; Owned by the launcher so it always stays in front of it (modal dialog).
-    EditorGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +Owner" MainGui.Hwnd, windowTitle)
+    EditorGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +Owner" MainGui.Hwnd, title)
     EditorGui.SetFont("s10", "Segoe UI")
     EditorGui.MarginX := 16
     EditorGui.MarginY := 16
-
-    EditorGui.AddText("xm ym", "Name")
-    EditorName := EditorGui.AddEdit("xm y+5 w470 h30")
-
-    EditorGui.AddText("xm y+14", "Type")
-    EditorType := EditorGui.AddDropDownList(
-        "xm y+5 w470 Choose1",
-        ["Folder", "Document", "Program", "Web address"]
-    )
-    EditorType.OnEvent("Change", EditorTypeChanged)
-
-    EditorGui.AddText("xm y+14", "Location")
-    EditorTarget := EditorGui.AddEdit("xm y+5 w370 h30")
-    EditorTarget.OnEvent("Change", SuggestEditorName)
-
-    EditorBrowseButton := EditorGui.AddButton("x+8 yp w92 h30", "Browse...")
-    EditorBrowseButton.OnEvent("Click", BrowseEditorTarget)
-
-    EditorGui.AddText("xm y+14", "Direct shortcut")
-    EditorHotkey := EditorGui.AddHotkey("xm y+5 w220 h30")
-    EditorGui.AddText("x+10 yp+5 c666666", "Optional")
-
-    clearButton := EditorGui.AddButton("xm y+9 w125 h28", "Clear shortcut")
-    clearButton.OnEvent("Click", ClearEditorShortcut)
-
-    saveText := index = 0 ? "Add" : "Save"
-    saveButton := EditorGui.AddButton("x285 y+22 w90 h32 Default", saveText)
-    saveButton.OnEvent("Click", SaveEditor)
-
-    cancelButton := EditorGui.AddButton("x+8 yp w90 h32", "Cancel")
-    cancelButton.OnEvent("Click", CloseEditor)
-
     EditorGui.OnEvent("Escape", CloseEditor)
     EditorGui.OnEvent("Close", CloseEditor)
     SetWindowIcon(EditorGui)
+}
 
-    if index > 0 {
-        favorite := Favorites[index]
-        EditorName.Value := favorite.Name
-        EditorTarget.Value := favorite.Target
-        EditorHotkey.Value := favorite.Hotkey
-        EditorType.Choose(TypeToDropdownIndex(favorite.Type))
-    }
+; Direct shortcuts are off while the editor is open, so pressing one in the
+; shortcut box records it instead of opening a favorite.
+ShowEditorWindow() {
+    global EditorGui, EditorReplacedGui, MainGui
 
-    EditorTypeChanged()
+    UnregisterAllHotkeys()
     MainGui.Opt("+Disabled")
     EditorGui.Show("AutoSize Center")
 
-    if index = 0
-        EditorTarget.Focus()
-    else
-        EditorName.Focus()
+    if IsObject(EditorReplacedGui)
+        try EditorReplacedGui.Destroy()
+    EditorReplacedGui := ""
 }
 
+; Keeps the name in step with the location until the user types a name of their own.
 SuggestEditorName(*) {
-    global EditorName, EditorTarget, EditorType
-    if Trim(EditorName.Value) != ""
+    global EditorName, EditorTarget, EditorTypeValue, EditorAutoName
+
+    currentName := Trim(EditorName.Value)
+    if currentName != "" && currentName != EditorAutoName
         return
 
     target := Trim(EditorTarget.Value)
-    if target = ""
-        return
-
-    type := DropdownIndexToType(EditorType.Value)
-    EditorName.Value := GetDefaultName(target, type)
+    EditorAutoName := target = "" ? "" : GetDefaultName(target, EditorTypeValue)
+    EditorName.Value := EditorAutoName
 }
 
 CloseEditor(*) {
@@ -737,65 +815,110 @@ CloseEditor(*) {
     ; Re-enable the owner first so Windows hands focus back to it, not another app.
     MainGui.Opt("-Disabled")
     try EditorGui.Destroy()
+    EditorGui := ""
+    RegisterAllHotkeys()
     MainGui.Show()
     SearchBox.Focus()
 }
 
-EditorTypeChanged(*) {
-    global EditorType, EditorBrowseButton
-    type := DropdownIndexToType(EditorType.Value)
+; Opens the folder or file picker for the type; returns "" when cancelled.
+PickTarget(type, startAt := "") {
+    global EditorGui
+    EditorGui.Opt("+OwnDialogs")
 
-    if type = "link" {
-        EditorBrowseButton.Enabled := false
-        EditorBrowseButton.Text := "Browse..."
-    } else {
-        EditorBrowseButton.Enabled := true
-        EditorBrowseButton.Text := type = "folder" ? "Folder..." : "File..."
+    switch type {
+        case "folder":
+            return DirSelect("*" startAt, 3, "Choose a folder")
+        case "document":
+            return FileSelect(1, startAt, "Choose a document", "All files (*.*)")
+        case "program":
+            return FileSelect(1, startAt, "Choose a program", "Programs (*.exe; *.bat; *.cmd; *.com; *.ahk; *.lnk)")
     }
+    return ""
 }
 
 BrowseEditorTarget(*) {
-    global EditorGui, EditorType, EditorTarget, EditorName
-    EditorGui.Opt("+OwnDialogs")
-    type := DropdownIndexToType(EditorType.Value)
-    selectedTarget := ""
-
-    if type = "folder"
-        selectedTarget := DirSelect("*", 3, "Choose a folder")
-    else if type = "document"
-        selectedTarget := FileSelect(1, "", "Choose a document", "All files (*.*)")
-    else if type = "program"
-        selectedTarget := FileSelect(
-            1,
-            "",
-            "Choose a program",
-            "Programs (*.exe; *.bat; *.cmd; *.com; *.ahk; *.lnk)"
-        )
-    else
-        return
-
+    global EditorTarget, EditorTypeValue
+    selectedTarget := PickTarget(EditorTypeValue, Trim(EditorTarget.Value))
     if selectedTarget = ""
         return
 
     EditorTarget.Value := selectedTarget
-    if Trim(EditorName.Value) = ""
-        EditorName.Value := GetDefaultName(selectedTarget, type)
+    SuggestEditorName()
 }
 
 ClearEditorShortcut(*) {
     global EditorHotkey
     EditorHotkey.Value := ""
+    ResetShortcutStatus()
+}
+
+ResetShortcutStatus(*) {
+    SetShortcutStatus("none", "Press keys in the box, then click Test.")
+}
+
+TestEditorShortcut(*) {
+    global EditorHotkey, EditingIndex
+    result := CheckShortcut(EditorHotkey.Value, EditingIndex)
+    if result.Level = "none"
+        SetShortcutStatus("none", "Press a key combination in the box first.")
+    else
+        SetShortcutStatus(result.Level, result.Message)
+}
+
+SetShortcutStatus(level, message) {
+    global EditorShortcutStatus
+    switch level {
+        case "ok": color := "c107C10"
+        case "warn": color := "c9D5D00"
+        case "error": color := "cC42B1C"
+        default: color := "c666666"
+    }
+    EditorShortcutStatus.SetFont(color)
+    EditorShortcutStatus.Text := message
+}
+
+; Checks the shortcut and asks about a risky one. Returns true if it may be saved.
+ConfirmShortcut(hotkeyValue) {
+    global Favorites, EditingIndex
+
+    result := CheckShortcut(hotkeyValue, EditingIndex)
+    if result.Level = "none" || result.Level = "ok"
+        return true
+
+    SetShortcutStatus(result.Level, result.Message)
+    if result.Level = "error" {
+        MsgBox(result.Message, "Choose another shortcut", "Iconx")
+        return false
+    }
+
+    ; Do not ask again about a shortcut the favorite already had.
+    if EditingIndex > 0 && StrLower(Favorites[EditingIndex].Hotkey) = StrLower(hotkeyValue)
+        return true
+
+    answer := MsgBox(result.Message "`n`nUse it anyway?", "Shortcut may cause problems", "YesNo Icon! Default2")
+    return answer = "Yes"
 }
 
 SaveEditor(*) {
     global Favorites, EditingIndex, EditorName, EditorTarget
-    global EditorGui, EditorType, EditorHotkey, SearchBox
+    global EditorGui, EditorTypeValue, EditorHotkey, SearchBox
     EditorGui.Opt("+OwnDialogs")
 
     name := Trim(EditorName.Value)
     target := Trim(EditorTarget.Value)
-    type := DropdownIndexToType(EditorType.Value)
+    type := EditorTypeValue
     hotkeyValue := NormalizeHotkey(EditorHotkey.Value)
+
+    if target = "" {
+        MsgBox(
+            type = "link" ? "Enter a web address." : "Enter a location, or click Change... to choose one.",
+            "Favorite Launcher",
+            "Icon!"
+        )
+        EditorTarget.Focus()
+        return
+    }
 
     if name = "" {
         MsgBox("Enter a name.", "Favorite Launcher", "Icon!")
@@ -803,34 +926,9 @@ SaveEditor(*) {
         return
     }
 
-    if target = "" {
-        MsgBox("Enter a location.", "Favorite Launcher", "Icon!")
-        EditorTarget.Focus()
+    if !ConfirmShortcut(hotkeyValue) {
+        EditorHotkey.Focus()
         return
-    }
-
-    if hotkeyValue != "" {
-        duplicateIndex := FindDuplicateHotkey(hotkeyValue, EditingIndex)
-        if duplicateIndex > 0 {
-            MsgBox(
-                DisplayHotkey(hotkeyValue) " is already assigned to:`n`n"
-                Favorites[duplicateIndex].Name,
-                "Shortcut already used",
-                "Iconx"
-            )
-            EditorHotkey.Focus()
-            return
-        }
-
-        if IsReservedHotkey(hotkeyValue) {
-            MsgBox(
-                "Ctrl+Alt+Space opens the launcher and cannot be assigned.",
-                "Shortcut already used",
-                "Iconx"
-            )
-            EditorHotkey.Focus()
-            return
-        }
     }
 
     favorite := {
@@ -857,23 +955,13 @@ SaveEditor(*) {
     SearchBox.Focus()
 }
 
-TypeToDropdownIndex(type) {
+TypeToLabel(type) {
     switch type {
-        case "folder": return 1
-        case "document": return 2
-        case "program": return 3
-        case "link": return 4
-        default: return 1
-    }
-}
-
-DropdownIndexToType(index) {
-    switch index {
-        case 1: return "folder"
-        case 2: return "document"
-        case 3: return "program"
-        case 4: return "link"
-        default: return "folder"
+        case "folder": return "Folder"
+        case "document": return "Document"
+        case "program": return "Program"
+        case "link": return "Web address"
+        default: return "Favorite"
     }
 }
 
@@ -1034,6 +1122,188 @@ DisplayHotkey(hotkeyValue) {
     }
 
     return display key
+}
+
+; Checks a shortcut before it is saved. Returns {Level, Message}, where Level is
+; "none" (no shortcut), "ok", "warn" (works, but may clash) or "error" (cannot be used).
+CheckShortcut(hotkeyValue, ignoredIndex := 0) {
+    global Favorites
+
+    hotkeyValue := NormalizeHotkey(hotkeyValue)
+    if hotkeyValue = ""
+        return {Level: "none", Message: ""}
+
+    shown := DisplayHotkey(hotkeyValue)
+    if IsReservedHotkey(hotkeyValue)
+        return {Level: "error", Message: shown " opens the launcher. Choose another shortcut."}
+
+    duplicateIndex := FindDuplicateHotkey(hotkeyValue, ignoredIndex)
+    if duplicateIndex > 0
+        return {
+            Level: "error",
+            Message: shown ' is already used by "' Favorites[duplicateIndex].Name '". Choose another shortcut.'
+        }
+
+    warning := GetShortcutWarning(hotkeyValue)
+    if warning != ""
+        return {Level: "warn", Message: warning}
+
+    if IsHotkeyTakenByOtherProgram(hotkeyValue)
+        return {Level: "warn", Message: shown " is already used by another program. Choose another shortcut."}
+
+    return {Level: "ok", Message: shown " looks free."}
+}
+
+; Why a shortcut is likely to clash with typing, menus or other programs; "" if it looks fine.
+GetShortcutWarning(hotkeyValue) {
+    keys := ParseHotkey(hotkeyValue)
+    shown := DisplayHotkey(hotkeyValue)
+    better := SuggestShortcut(hotkeyValue)
+
+    meaning := GetCommonShortcutMeaning(shown)
+    if meaning != ""
+        return shown " is a common shortcut (" meaning "). Try " better " instead."
+    if keys.Win
+        return shown " may be used by Windows. Try " better " instead."
+    if !keys.Ctrl && !keys.Alt
+        return shown " is used for typing and by many programs. Try " better " instead."
+    if keys.Alt && !keys.Ctrl && !keys.Shift
+        return shown " opens menus in many programs (like Alt+F for File). Try " better " instead."
+    if keys.Ctrl && !keys.Alt
+        return shown " is used by many programs. Try " better " instead."
+
+    character := GetAltGrCharacter(hotkeyValue)
+    if character != ""
+        return shown ' types "' character '" on your keyboard. Try ' better " instead."
+    return ""
+}
+
+; A safer shortcut with the same key: Ctrl+Alt+key, or Ctrl+Alt+Shift+key if Ctrl+Alt+key types a character.
+SuggestShortcut(hotkeyValue) {
+    key := ParseHotkey(hotkeyValue).Key
+    candidate := "^!" key
+    if GetAltGrCharacter(candidate) != ""
+        candidate := "^!+" key
+    return DisplayHotkey(candidate)
+}
+
+; Splits an AHK hotkey such as "^+!p" into its modifiers and key.
+ParseHotkey(hotkeyValue) {
+    keys := {Ctrl: false, Alt: false, Shift: false, Win: false, Key: ""}
+    rest := hotkeyValue
+
+    if InStr(rest, "<^>!") {
+        keys.Ctrl := true
+        keys.Alt := true
+        rest := StrReplace(rest, "<^>!")
+    }
+
+    while StrLen(rest) > 1 && InStr("^!+#<>*~$", SubStr(rest, 1, 1)) {
+        switch SubStr(rest, 1, 1) {
+            case "^": keys.Ctrl := true
+            case "!": keys.Alt := true
+            case "+": keys.Shift := true
+            case "#": keys.Win := true
+        }
+        rest := SubStr(rest, 2)
+    }
+
+    keys.Key := rest
+    return keys
+}
+
+; What a well-known shortcut does, by its display name (for example "Ctrl+S" -> "Save").
+GetCommonShortcutMeaning(shown) {
+    static meanings := ""
+    if !IsObject(meanings) {
+        meanings := Map()
+        meanings.CaseSense := false
+        meanings.Set(
+            "Ctrl+A", "Select all", "Ctrl+C", "Copy", "Ctrl+F", "Find", "Ctrl+H", "Replace",
+            "Ctrl+N", "New", "Ctrl+O", "Open", "Ctrl+P", "Print", "Ctrl+R", "Refresh",
+            "Ctrl+S", "Save", "Ctrl+T", "New tab", "Ctrl+V", "Paste", "Ctrl+W", "Close",
+            "Ctrl+X", "Cut", "Ctrl+Y", "Redo", "Ctrl+Z", "Undo", "Ctrl+Esc", "Start menu",
+            "Ctrl+Shift+N", "New folder", "Ctrl+Shift+T", "Reopen closed tab",
+            "Ctrl+Shift+Esc", "Task Manager", "Alt+F4", "Close window", "Alt+Tab", "Switch windows",
+            "Alt+Space", "Window menu", "Alt+Enter", "Properties",
+            "F1", "Help", "F2", "Rename", "F3", "Search", "F5", "Refresh", "F11", "Full screen",
+            "Win+D", "Show desktop", "Win+E", "File Explorer", "Win+L", "Lock", "Win+R", "Run",
+            "Win+V", "Clipboard history"
+        )
+    }
+    return meanings.Has(shown) ? meanings[shown] : ""
+}
+
+; The character a Ctrl+Alt (AltGr) shortcut types on the current keyboard layout,
+; for example "@" for Ctrl+Alt+2 on a Norwegian keyboard. "" if it types nothing.
+GetAltGrCharacter(hotkeyValue) {
+    static VK_SHIFT := 0x10, VK_CONTROL := 0x11, VK_MENU := 0x12
+    static VK_LSHIFT := 0xA0, VK_LCONTROL := 0xA2, VK_RMENU := 0xA5
+    static DontChangeKeyboardState := 0x4
+
+    keys := ParseHotkey(hotkeyValue)
+    if !keys.Ctrl || !keys.Alt
+        return ""
+
+    virtualKey := GetKeyVK(keys.Key)
+    if !virtualKey
+        return ""
+
+    keyState := Buffer(256, 0)
+    for keyCode in [VK_CONTROL, VK_MENU, VK_LCONTROL, VK_RMENU]
+        NumPut("UChar", 0x80, keyState, keyCode)
+    if keys.Shift {
+        NumPut("UChar", 0x80, keyState, VK_SHIFT)
+        NumPut("UChar", 0x80, keyState, VK_LSHIFT)
+    }
+
+    characters := Buffer(16, 0)
+    layout := DllCall("GetKeyboardLayout", "UInt", 0, "Ptr")
+    count := DllCall(
+        "ToUnicodeEx",
+        "UInt", virtualKey,
+        "UInt", GetKeySC(keys.Key),
+        "Ptr", keyState,
+        "Ptr", characters,
+        "Int", 8,
+        "UInt", DontChangeKeyboardState,
+        "Ptr", layout,
+        "Int"
+    )
+    if count = 0
+        return ""
+
+    ; A negative count is a dead key (such as ~), which still types a character.
+    text := StrGet(characters, Abs(count), "UTF-16")
+    return Ord(text) > 32 ? text : ""
+}
+
+; True if another program has claimed this shortcut with Windows (RegisterHotKey).
+; Shortcuts that a program only handles inside its own window cannot be detected.
+IsHotkeyTakenByOtherProgram(hotkeyValue) {
+    static MOD_ALT := 0x1, MOD_CONTROL := 0x2, MOD_SHIFT := 0x4, MOD_WIN := 0x8, MOD_NOREPEAT := 0x4000
+    static ERROR_HOTKEY_ALREADY_REGISTERED := 1409, ProbeId := 0xBFF0
+
+    keys := ParseHotkey(hotkeyValue)
+    virtualKey := GetKeyVK(keys.Key)
+    if !virtualKey
+        return false
+
+    modifiers := MOD_NOREPEAT
+    if keys.Alt
+        modifiers |= MOD_ALT
+    if keys.Ctrl
+        modifiers |= MOD_CONTROL
+    if keys.Shift
+        modifiers |= MOD_SHIFT
+    if keys.Win
+        modifiers |= MOD_WIN
+
+    if DllCall("RegisterHotKey", "Ptr", 0, "Int", ProbeId, "UInt", modifiers, "UInt", virtualKey) {
+        DllCall("UnregisterHotKey", "Ptr", 0, "Int", ProbeId)
+        return false
+    }
+    return A_LastError = ERROR_HOTKEY_ALREADY_REGISTERED
 }
 
 LoadFavorites() {

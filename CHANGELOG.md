@@ -3,11 +3,16 @@
 All notable changes to FavoriteLauncher. Versions follow [Semantic Versioning](https://semver.org/):
 MAJOR for incompatible changes (for example to the ini format), MINOR for new features, PATCH for bug fixes.
 
-## [Unreleased]
+## [1.2.0] - 2026-11-11
 
 ### Added
 - `build.ahk`: runs the tests and, if they all pass, compiles `FavoriteLauncher.exe` and checks its version and icon. (#8)
 - The exe shows as "FavoriteLauncher" in Task Manager. (#8)
+- **Test** button for the direct shortcut. It checks whether another favorite, Windows or another program already uses the shortcut. It warns about Alt+letter (opens menus), single keys, common shortcuts such as Ctrl+S, and Ctrl+Alt keys that type a character on your keyboard (AltGr). Risky shortcuts can still be used after you confirm. (#9)
+
+### Changed
+- Adding a favorite takes two steps: first choose a folder, document, program or web address, then set the name and shortcut. The name is filled in from the location. The Edit window uses the same order: location, name, shortcut. (#9)
+- Direct shortcuts are paused while the Add/Edit window is open, so pressing an existing shortcut in the shortcut box records it instead of opening a favorite. (#9)
 
 ## [1.1.0] - 2026-11-11
 

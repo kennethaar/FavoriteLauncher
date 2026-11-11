@@ -51,8 +51,28 @@ RunAllTests([
     ; Dialogs stay in front
     Test_Editor_IsOwnedByLauncher,
     Test_EditorMessage_IsOwnedByEditor,
-    Test_BrowseDialog_IsOwnedByEditor,
+    Test_AddStep1_FolderPickerIsOwnedByEditor,
     Test_RemoveConfirmation_IsOwnedByLauncher,
+
+    ; Add favorite: location first, then name and shortcut
+    Test_AddStep1_AsksWhatToAdd,
+    Test_AddStep1_PickedLocationGoesToStep2,
+    Test_AddStep1_WebAddressGoesToStep2WithoutPicker,
+    Test_AddStep2_OrderIsLocationThenNameThenShortcut,
+    Test_AddStep2_BackReturnsToStep1,
+    Test_AddStep2_AddSavesFavorite,
+    Test_Edit_IsOneWindowWithSameOrder,
+
+    ; Checking a shortcut
+    Test_CheckShortcut_EmptyAndFree,
+    Test_CheckShortcut_ReservedAndDuplicateAreErrors,
+    Test_CheckShortcut_AltLetterWarnsAboutMenus,
+    Test_CheckShortcut_SingleKeyAndShiftLetterWarn,
+    Test_CheckShortcut_CommonCtrlShortcutWarns,
+    Test_CheckShortcut_TakenByOtherProgramWarns,
+    Test_CheckShortcut_AltGrCharacterWarns,
+    Test_TestButton_ShowsResultUnderShortcut,
+    Test_Save_RiskyShortcutAsksFirst,
 ])
 
 ; ---------------------------------------------------------------------------
@@ -210,8 +230,12 @@ Test_WindowIcon_SetOnLauncherEditorAndAbout() {
     AssertEqual(GetWindowIcon(MainGui, "small"), GetAppIcon("small"), "launcher title bar icon")
     AssertEqual(GetWindowIcon(MainGui, "big"), GetAppIcon("big"), "launcher taskbar icon")
 
-    OpenEditor()
-    try AssertEqual(GetWindowIcon(EditorGui, "small"), GetAppIcon("small"), "editor icon")
+    AddFavorite()
+    try AssertEqual(GetWindowIcon(EditorGui, "small"), GetAppIcon("small"), "Add step 1 icon")
+    finally CloseEditor()
+
+    ContinueWithTarget("folder", A_WinDir)
+    try AssertEqual(GetWindowIcon(EditorGui, "small"), GetAppIcon("small"), "Add step 2 icon")
     finally CloseEditor()
 
     ShowAbout()
@@ -246,33 +270,41 @@ Test_ListHeight_CappedAt80PercentOfScreen() {
 
 Test_Editor_IsOwnedByLauncher() {
     SetUpLauncher(3)
-    OpenEditor()
-    try AssertEqual(GetOwner(EditorGui.Hwnd), MainGui.Hwnd, "editor owner")
+    AddFavorite()
+    try AssertEqual(GetOwner(EditorGui.Hwnd), MainGui.Hwnd, "Add step 1 owner")
+    finally CloseEditor()
+
+    ContinueWithTarget("folder", A_WinDir)
+    try AssertEqual(GetOwner(EditorGui.Hwnd), MainGui.Hwnd, "Add step 2 owner")
+    finally CloseEditor()
+
+    OpenEditor(1)
+    try AssertEqual(GetOwner(EditorGui.Hwnd), MainGui.Hwnd, "Edit window owner")
     finally CloseEditor()
 }
 
 Test_EditorMessage_IsOwnedByEditor() {
     SetUpLauncher(3)
-    OpenEditor()
+    ChooseAddType("link")
     try {
         EditorName.Value := ""
         EditorTarget.Value := ""
         WatchForDialog()
-        SaveEditor()    ; shows "Enter a name."
+        SaveEditor()    ; shows "Enter a web address."
         AssertEqual(DialogOwner, EditorGui.Hwnd, "message box owner")
     } finally {
         CloseEditor()
     }
 }
 
-Test_BrowseDialog_IsOwnedByEditor() {
+Test_AddStep1_FolderPickerIsOwnedByEditor() {
     SetUpLauncher(3)
-    OpenEditor()
+    AddFavorite()
     try {
-        EditorType.Choose(1)    ; Folder
         WatchForDialog()
-        BrowseEditorTarget()
+        ChooseAddType("folder")    ; the picker opens right away; the watcher cancels it
         AssertEqual(DialogOwner, EditorGui.Hwnd, "folder picker owner")
+        AssertTrue(InStr(GetGuiText(EditorGui), "What do you want to add?"), "still on step 1 after cancelling the picker")
     } finally {
         CloseEditor()
     }
@@ -292,7 +324,249 @@ Test_RemoveConfirmation_IsOwnedByLauncher() {
 }
 
 ; ---------------------------------------------------------------------------
+; Add favorite: location first, then name and shortcut
+
+Test_AddStep1_AsksWhatToAdd() {
+    SetUpLauncher(3)
+    AddFavorite()
+    try {
+        allText := GetGuiText(EditorGui)
+        AssertTrue(InStr(allText, "Step 1 of 2"), "shows 'Step 1 of 2'")
+        AssertTrue(InStr(allText, "What do you want to add?"), "asks what to add")
+        for label in ["&Folder...", "&Document...", "&Program...", "&Web address", "Cancel"]
+            AssertTrue(InStr(allText, label "`n"), "has button " label)
+        AssertEqual(CountControls(EditorGui, "Edit"), 0, "no text fields before the location is chosen")
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_AddStep1_PickedLocationGoesToStep2() {
+    SetUpLauncher(3)
+    AddFavorite()
+    ContinueWithTarget("folder", "C:\Work\Projects")
+    try {
+        AssertTrue(InStr(GetGuiText(EditorGui), "Step 2 of 2"), "shows 'Step 2 of 2'")
+        AssertEqual(EditorTarget.Value, "C:\Work\Projects", "location filled in")
+        AssertEqual(EditorName.Value, "Projects", "name suggested from the location")
+        AssertEqual(EditorHotkey.Value, "", "no shortcut yet")
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_AddStep1_WebAddressGoesToStep2WithoutPicker() {
+    SetUpLauncher(3)
+    AddFavorite()
+    WatchForDialog()
+    ChooseAddType("link")
+    try {
+        AssertEqual(DialogOwner, 0, "no picker for a web address")
+        AssertTrue(InStr(GetGuiText(EditorGui), "Web address`n"), "location is labelled 'Web address'")
+        AssertEqual(EditorTarget.Value, "", "web address starts empty")
+        EditorTarget.Value := "https://www.example.com/start"
+        SuggestEditorName()
+        AssertEqual(EditorName.Value, "www.example.com", "name follows the typed address")
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_AddStep2_OrderIsLocationThenNameThenShortcut() {
+    SetUpLauncher(3)
+    ContinueWithTarget("folder", A_WinDir)
+    try {
+        EditorTarget.GetPos(, &targetY)
+        EditorName.GetPos(, &nameY)
+        EditorHotkey.GetPos(, &hotkeyY)
+        AssertTrue(targetY < nameY, "location above name")
+        AssertTrue(nameY < hotkeyY, "name above shortcut")
+        allText := GetGuiText(EditorGui)
+        for label in ["Change...", "Test", "Clear", "< Back", "Add", "Cancel"]
+            AssertTrue(InStr(allText, label "`n"), "has button " label)
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_AddStep2_BackReturnsToStep1() {
+    SetUpLauncher(3)
+    ContinueWithTarget("folder", A_WinDir)
+    try {
+        GoBackToStep1()
+        AssertTrue(InStr(GetGuiText(EditorGui), "What do you want to add?"), "back on step 1")
+        AssertEqual(GetOwner(EditorGui.Hwnd), MainGui.Hwnd, "step 1 still owned by the launcher")
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_AddStep2_AddSavesFavorite() {
+    SetUpLauncher(3)
+    ContinueWithTarget("folder", A_WinDir)
+    EditorName.Value := "Windows folder"
+    SaveEditor()
+    AssertEqual(Favorites.Length, 4, "one favorite added")
+    added := FindFavoriteByName("Windows folder")
+    AssertTrue(IsObject(added), "added favorite found by name")
+    AssertEqual(added.Target "|" added.Type, A_WinDir "|folder", "location and type saved")
+    AssertFalse(IsObject(EditorGui) && WinExist("ahk_id " EditorGui.Hwnd), "window closed after Add")
+}
+
+Test_Edit_IsOneWindowWithSameOrder() {
+    SetUpLauncher(3)
+    OpenEditor(1)
+    try {
+        allText := GetGuiText(EditorGui)
+        AssertEqual(EditorName.Value, Favorites[1].Name, "name filled in")
+        AssertEqual(EditorTarget.Value, Favorites[1].Target, "location filled in")
+        AssertFalse(InStr(allText, "< Back"), "no Back button when editing")
+        AssertFalse(InStr(allText, "Step "), "no step text when editing")
+        AssertTrue(InStr(allText, "Save`n"), "has Save button")
+        EditorTarget.GetPos(, &targetY)
+        EditorName.GetPos(, &nameY)
+        EditorHotkey.GetPos(, &hotkeyY)
+        AssertTrue(targetY < nameY && nameY < hotkeyY, "location, then name, then shortcut")
+    } finally {
+        CloseEditor()
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Checking a shortcut
+
+Test_CheckShortcut_EmptyAndFree() {
+    global Favorites := []
+    AssertEqual(CheckShortcut("").Level, "none", "no shortcut")
+    result := CheckShortcut("^+!F11")
+    AssertEqual(result.Level, "ok", "Ctrl+Alt+Shift+F11 is free (" result.Message ")")
+}
+
+Test_CheckShortcut_ReservedAndDuplicateAreErrors() {
+    global Favorites := [MakeFavorite("Reports", "C:\R", "folder", "^!r")]
+    AssertEqual(CheckShortcut("^!Space").Level, "error", "launcher shortcut")
+    result := CheckShortcut("^!R")
+    AssertEqual(result.Level, "error", "used by another favorite")
+    AssertTrue(InStr(result.Message, "Reports"), "names the other favorite: " result.Message)
+    AssertTrue(CheckShortcut("^!r", 1).Level != "error", "a favorite's own shortcut is not a duplicate")
+}
+
+Test_CheckShortcut_AltLetterWarnsAboutMenus() {
+    global Favorites := []
+    result := CheckShortcut("!p")
+    AssertEqual(result.Level, "warn", "Alt+P")
+    AssertTrue(InStr(result.Message, "menus"), "explains menus: " result.Message)
+    AssertTrue(InStr(result.Message, "Try Ctrl+"), "suggests adding Ctrl: " result.Message)
+}
+
+Test_CheckShortcut_SingleKeyAndShiftLetterWarn() {
+    global Favorites := []
+    AssertEqual(CheckShortcut("p").Level, "warn", "P alone")
+    AssertEqual(CheckShortcut("+p").Level, "warn", "Shift+P")
+    AssertEqual(CheckShortcut("F5").Level, "warn", "F5 alone")
+}
+
+Test_CheckShortcut_CommonCtrlShortcutWarns() {
+    global Favorites := []
+    result := CheckShortcut("^s")
+    AssertEqual(result.Level, "warn", "Ctrl+S")
+    AssertTrue(InStr(result.Message, "Save"), "says what Ctrl+S does: " result.Message)
+}
+
+Test_CheckShortcut_TakenByOtherProgramWarns() {
+    static MOD_ALT := 1, MOD_CONTROL := 2, MOD_SHIFT := 4, VK_F10 := 0x79, TestId := 0x1234
+    global Favorites := []
+    registered := DllCall("RegisterHotKey", "Ptr", 0, "Int", TestId, "UInt", MOD_ALT | MOD_CONTROL | MOD_SHIFT, "UInt", VK_F10)
+    AssertTrue(registered, "test setup: claim Ctrl+Alt+Shift+F10 like another program would")
+    try {
+        result := CheckShortcut("^+!F10")
+        AssertEqual(result.Level, "warn", "taken shortcut")
+        AssertTrue(InStr(result.Message, "another program"), "says another program uses it: " result.Message)
+    } finally {
+        DllCall("UnregisterHotKey", "Ptr", 0, "Int", TestId)
+    }
+}
+
+; On layouts with AltGr (like Norwegian), Ctrl+Alt+2 types "@", so it is a bad shortcut.
+Test_CheckShortcut_AltGrCharacterWarns() {
+    global Favorites := []
+    language := DllCall("GetKeyboardLayout", "UInt", 0, "Ptr") & 0xFFFF
+    if language = 0x0414 || language = 0x0814    ; Norwegian Bokmål / Nynorsk
+        AssertEqual(GetAltGrCharacter("^!2"), "@", "Ctrl+Alt+2 types @ on a Norwegian keyboard")
+
+    character := GetAltGrCharacter("^!2")
+    if character = ""
+        return    ; this layout has no AltGr character on 2
+    result := CheckShortcut("^!2")
+    AssertEqual(result.Level, "warn", "Ctrl+Alt+2")
+    AssertTrue(InStr(result.Message, character), "names the character: " result.Message)
+}
+
+Test_TestButton_ShowsResultUnderShortcut() {
+    SetUpLauncher(3)
+    ContinueWithTarget("folder", A_WinDir)
+    try {
+        EditorHotkey.Value := "!p"
+        TestEditorShortcut()
+        AssertTrue(InStr(EditorShortcutStatus.Text, "menus"), "status shows the warning: " EditorShortcutStatus.Text)
+        EditorHotkey.Value := "^+!F11"
+        TestEditorShortcut()
+        AssertTrue(InStr(EditorShortcutStatus.Text, "looks free"), "status says it looks free: " EditorShortcutStatus.Text)
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_Save_RiskyShortcutAsksFirst() {
+    SetUpLauncher(3)
+    ContinueWithTarget("folder", A_WinDir)
+    try {
+        EditorName.Value := "Risky"
+        EditorHotkey.Value := "!p"
+        WatchForDialog("Button2")    ; No
+        SaveEditor()
+        AssertEqual(DialogOwner, EditorGui.Hwnd, "question owned by the editor")
+        AssertEqual(Favorites.Length, 3, "not added after answering No")
+
+        WatchForDialog("Button1")    ; Yes
+        SaveEditor()
+        AssertEqual(Favorites.Length, 4, "added after answering Yes")
+        AssertEqual(FindFavoriteByName("Risky").Hotkey, "!p", "shortcut kept")
+    } finally {
+        UnregisterAllHotkeys()
+        CloseEditor()
+    }
+}
+
+; ---------------------------------------------------------------------------
 ; Helpers
+
+; All control texts of a window, one per line.
+GetGuiText(guiObj) {
+    allText := ""
+    for control in guiObj {
+        try allText .= control.Text "`n"
+    }
+    return allText
+}
+
+CountControls(guiObj, controlType) {
+    count := 0
+    for control in guiObj {
+        if control.Type = controlType
+            count += 1
+    }
+    return count
+}
+
+FindFavoriteByName(name) {
+    global Favorites
+    for favorite in Favorites {
+        if favorite.Name = name
+            return favorite
+    }
+    return ""
+}
 
 MakeFavorite(name, target, type := "folder", hotkeyValue := "") {
     return {Name: name, Target: target, Type: type, Hotkey: hotkeyValue}
