@@ -387,7 +387,8 @@ RunAllTests(tests) {
             FileAppend("PASS  " test.Name "`n", "*")
         } catch Error as err {
             FailedCount += 1
-            FileAppend("FAIL  " test.Name "`n      " err.Message "`n", "*")
+            where := err.What != "" && err.What != test.Name ? " (in " err.What ", line " err.Line ")" : ""
+            FileAppend("FAIL  " test.Name "`n      " err.Message where "`n", "*")
         }
     }
 

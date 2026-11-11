@@ -5,7 +5,7 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 ## Running
 
 - Requires AutoHotkey v2.0 (`#Requires AutoHotkey v2.0`). Run the `.ahk` file directly; `#SingleInstance Force` replaces a running instance.
-- No build step. Optional compile with Ahk2Exe uses the `;@Ahk2Exe-SetVersion` / `;@Ahk2Exe-SetMainIcon` directives.
+- Build with `build.ahk` (see Building). `FavoriteLauncher.exe` is a build output (gitignored). It sits next to the script and shares `FavoriteLauncher.ini`. Run either the `.ahk` or the `.exe`, not both: both use `Ctrl+Alt+Space`.
 - Use AutoHotkey v2 syntax only — never v1.
 - The app only starts when `FavoriteLauncher.ahk` is the script being run (`A_LineFile = A_ScriptFullPath`). When another script `#Include`s it (the tests), only the functions and globals load. Keep all startup code inside `StartLauncher()`. Use `AppDir` (not `A_ScriptDir`) for files next to the script.
 
@@ -19,6 +19,12 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 - Dialogs (MsgBox, FileSelect, DirSelect) are tested with `WatchForDialog()`. It records the dialog's owner window and closes the dialog from a timer thread.
 - Test what the user sees, not just that something exists. For example, AHK puts its own default icon on every window, so check that the icon *is ours*.
 - Running a script with `#SingleInstance Force` replaces the user's running launcher. After any live test of `FavoriteLauncher.ahk`, start it again.
+
+## Building
+
+- `"C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut build.ahk` from the repository root. Or double-click `build.ahk` to see the result in a message box.
+- Steps: run the full test suite → stop if any test fails → close a running `FavoriteLauncher.exe` → compile with Ahk2Exe (`C:\Program Files\AutoHotkey\Compiler\Ahk2Exe.exe`, base = the v2 interpreter) → check that the exe's file version is `AppVersion.0` and its icon is `FavoriteLauncher.ico` → restart the exe if it was running. Exit code 0 = success.
+- Exe metadata comes from the `;@Ahk2Exe-...` directives at the top of `FavoriteLauncher.ahk`.
 
 ## Versioning
 
@@ -58,7 +64,7 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 ## Working agreements
 
 - **New features: mockups first.** Before implementing any new feature, present 3 different ASCII mockups of the UI/flow and let the user pick one. Do not write implementation code until a mockup has been chosen.
-- **Tests first.** For every feature or bug fix, write or extend a test *before* the implementation, run the suite, and confirm the new test fails for the right reason. Then implement it and run the full suite again until everything passes. Run the full suite after every feature, never only the new test.
+- **Tests first.** For every feature or bug fix, write or extend a test *before* the implementation, run the suite, and confirm the new test fails for the right reason. Then implement it and run the full suite again until everything passes. After every feature or fix, run `build.ahk`. It runs the full suite (never only the new test) and produces a fresh `FavoriteLauncher.exe`.
 - **One GitHub issue per change.** Open an issue for each feature, change or bug fix (labels `enhancement` or `bug`). When it ships, list it under the version in `CHANGELOG.md` with its issue number, bump the version, commit with `Fixes #N`, tag `vX.Y.Z`, and close the issue with a comment such as "Fixed in v1.2.0".
 - **Follow best practice** for AutoHotkey v2 and Windows UI conventions (standard keyboard shortcuts, native controls, consistent spacing and fonts, clear error messages).
 - **Apply Steve Krug's "Don't Make Me Think" principles:**

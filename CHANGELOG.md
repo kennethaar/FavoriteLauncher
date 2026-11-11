@@ -3,6 +3,12 @@
 All notable changes to FavoriteLauncher. Versions follow [Semantic Versioning](https://semver.org/):
 MAJOR for incompatible changes (for example to the ini format), MINOR for new features, PATCH for bug fixes.
 
+## [Unreleased]
+
+### Added
+- `build.ahk`: runs the tests and, if they all pass, compiles `FavoriteLauncher.exe` and checks its version and icon.
+- The exe shows as "FavoriteLauncher" in Task Manager.
+
 ## [1.1.0] - 2026-11-11
 
 ### Added

@@ -2,6 +2,8 @@
 #SingleInstance Force
 ;@Ahk2Exe-SetVersion 1.1.0
 ;@Ahk2Exe-SetMainIcon FavoriteLauncher.ico
+;@Ahk2Exe-SetDescription FavoriteLauncher
+;@Ahk2Exe-SetProductName FavoriteLauncher
 
 SendMode("Input")
 

@@ -3,3 +3,6 @@ FavoriteLauncher.ini
 
 # Backups
 *.bak
+
+# Build output (run build.ahk)
+FavoriteLauncher.exe
