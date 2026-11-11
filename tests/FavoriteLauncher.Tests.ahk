@@ -85,6 +85,11 @@ RunAllTests([
 
     ; Tray menu
     Test_TrayMenu_ItemsAndSingleClickOpens,
+
+    ; Start with Windows
+    Test_StartWithWindows_TrayItemTogglesShortcut,
+    Test_Welcome_StartWithWindowsCheckedByDefault,
+    Test_Welcome_UncheckedRemovesShortcut,
 ])
 
 ; ---------------------------------------------------------------------------
@@ -691,7 +696,8 @@ Test_GetDefaultName_FromCommand() {
 
 Test_TrayMenu_ItemsAndSingleClickOpens() {
     ConfigureTrayMenu()
-    AssertEqual(GetMenuItemNames(A_TrayMenu.Handle), "Open launcher|-|What's new|About|-|Exit", "tray menu items")
+    AssertEqual(GetMenuItemNames(A_TrayMenu.Handle), "Open launcher|-|Start with Windows|-|What's new|About|-|Exit",
+        "tray menu items")
     AssertEqual(DllCall("GetMenuDefaultItem", "Ptr", A_TrayMenu.Handle, "UInt", 1, "UInt", 0, "Int"), 0,
         "Open launcher is the default (bold) item")
     AssertEqual(A_TrayMenu.ClickCount, 1, "a single click on the tray icon opens the launcher")
@@ -700,7 +706,76 @@ Test_TrayMenu_ItemsAndSingleClickOpens() {
 }
 
 ; ---------------------------------------------------------------------------
+; Start with Windows (uses a temporary startup folder, never the real one)
+
+Test_StartWithWindows_TrayItemTogglesShortcut() {
+    UseTestStartupFolder()
+    ConfigureTrayMenu()
+    AssertFalse(IsTrayItemChecked("Start with Windows"), "unchecked when there is no startup shortcut")
+
+    ToggleStartWithWindows()
+    AssertTrue(FileExist(StartupShortcut), "shortcut created in the startup folder")
+    AssertTrue(IsTrayItemChecked("Start with Windows"), "checked after turning it on")
+    FileGetShortcut(StartupShortcut, &target, , &arguments)
+    AssertEqual(target, A_AhkPath, "script version starts through AutoHotkey")
+    AssertTrue(InStr(arguments, AppDir "\FavoriteLauncher.ahk"), "and runs FavoriteLauncher.ahk: " arguments)
+
+    ToggleStartWithWindows()
+    AssertFalse(FileExist(StartupShortcut), "shortcut removed")
+    AssertFalse(IsTrayItemChecked("Start with Windows"), "unchecked after turning it off")
+}
+
+Test_Welcome_StartWithWindowsCheckedByDefault() {
+    UseTestStartupFolder()
+    SetUpLauncher(3)
+    ShowWelcome()
+    try {
+        AssertEqual(WelcomeGui.Title, "Welcome to Favorite Launcher", "window title")
+        AssertTrue(InStr(GetGuiText(WelcomeGui), "Ctrl+Alt+Space"), "tells how to open the launcher")
+        AssertEqual(WelcomeStartup.Text, "Start with Windows", "checkbox label")
+        AssertEqual(WelcomeStartup.Value, 1, "checked by default")
+        AssertEqual(GetWindowIcon(WelcomeGui, "small"), GetAppIcon("small"), "welcome window icon")
+        AssertEqual(GetFontPoints(WelcomeStartup), 9, "9pt font")
+    } finally {
+        WelcomeClose()
+    }
+    AssertTrue(FileExist(StartupShortcut), "closing with the box checked turns it on")
+}
+
+Test_Welcome_UncheckedRemovesShortcut() {
+    UseTestStartupFolder()
+    SetStartWithWindows(true)
+    SetUpLauncher(3)
+    ShowWelcome()
+    WelcomeStartup.Value := 0
+    WelcomeOpenLauncher()
+    try {
+        AssertFalse(FileExist(StartupShortcut), "unchecked turns it off")
+        AssertTrue(DllCall("IsWindowVisible", "Ptr", MainGui.Hwnd), "Open launcher shows the launcher")
+    } finally {
+        MainGui.Hide()
+    }
+}
+
+; ---------------------------------------------------------------------------
 ; Helpers
+
+UseTestStartupFolder() {
+    global StartupShortcut, TestDir
+    DirCreate(TestDir "\Startup")
+    StartupShortcut := TestDir "\Startup\FavoriteLauncher.lnk"
+    try FileDelete(StartupShortcut)
+}
+
+IsTrayItemChecked(itemName) {
+    static MF_BYPOSITION := 0x400, MF_CHECKED := 0x8
+    names := StrSplit(GetMenuItemNames(A_TrayMenu.Handle), "|")
+    for index, name in names {
+        if name = itemName
+            return (DllCall("GetMenuState", "Ptr", A_TrayMenu.Handle, "UInt", index - 1, "UInt", MF_BYPOSITION, "UInt") & MF_CHECKED) != 0
+    }
+    throw Error("No tray item named " itemName)
+}
 
 ; Menu item texts joined by "|"; separators are "-".
 GetMenuItemNames(menuHandle) {

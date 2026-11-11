@@ -26,6 +26,8 @@ global EditingIndex := 0, SelectedRow := 0
 global FavoriteImageList := 0, IconCache := Map()
 global AppIconFile := AppDir "\FavoriteLauncher.ico"
 global ChangelogUrl := "https://github.com/kennethaar/FavoriteLauncher/blob/main/CHANGELOG.md"
+global StartupShortcut := A_Startup "\FavoriteLauncher.lnk"
+global WelcomeGui := "", WelcomeStartup := ""
 
 ; Start only when run directly. The test suite includes this file without starting the app.
 if A_IsCompiled || A_LineFile = A_ScriptFullPath
@@ -59,10 +61,97 @@ ConfigureTrayMenu() {
     A_TrayMenu.Default := "Open launcher"
     A_TrayMenu.ClickCount := 1    ; a single click on the tray icon opens the launcher
     A_TrayMenu.Add()
+    A_TrayMenu.Add("Start with Windows", ToggleStartWithWindows)
+    if IsStartWithWindows()
+        A_TrayMenu.Check("Start with Windows")
+    A_TrayMenu.Add()
     A_TrayMenu.Add("What's new", OpenChangelog)
     A_TrayMenu.Add("About", ShowAbout)
     A_TrayMenu.Add()
     A_TrayMenu.Add("Exit", ExitLauncher)
+}
+
+IsStartWithWindows() {
+    global StartupShortcut
+    return FileExist(StartupShortcut) != ""
+}
+
+ToggleStartWithWindows(*) {
+    SetStartWithWindows(!IsStartWithWindows())
+}
+
+; Adds or removes the shortcut in the user's Startup folder and updates the tray checkmark.
+SetStartWithWindows(enable) {
+    global StartupShortcut, AppDir, AppIconFile
+
+    try {
+        if enable {
+            ; The script version starts through AutoHotkey; the exe starts itself.
+            target := A_IsCompiled ? A_ScriptFullPath : A_AhkPath
+            arguments := A_IsCompiled ? "" : '"' AppDir '\FavoriteLauncher.ahk"'
+            iconFile := A_IsCompiled ? "" : AppIconFile
+            FileCreateShortcut(target, StartupShortcut, AppDir, arguments, "Favorite Launcher", iconFile)
+        } else if FileExist(StartupShortcut) {
+            FileDelete(StartupShortcut)
+        }
+    } catch Error as err {
+        MsgBox(
+            "Could not change Start with Windows:`n`n" err.Message,
+            "Favorite Launcher",
+            "Iconx 0x40000"
+        )
+    }
+
+    try {
+        if IsStartWithWindows()
+            A_TrayMenu.Check("Start with Windows")
+        else
+            A_TrayMenu.Uncheck("Start with Windows")
+    }
+}
+
+; First-run welcome: how to open the launcher, and whether to start with Windows.
+ShowWelcome() {
+    global WelcomeGui, WelcomeStartup
+    static TextWidth := 300
+
+    WelcomeGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", "Welcome to Favorite Launcher")
+    WelcomeGui.SetFont("s9", "Segoe UI")
+    WelcomeGui.MarginX := 16
+    WelcomeGui.MarginY := 16
+
+    WelcomeGui.AddText(
+        "xm ym w" TextWidth,
+        "Press Ctrl+Alt+Space to open the launcher.`nType to find a favorite, and press Enter to open it."
+    )
+    WelcomeStartup := WelcomeGui.AddCheckbox("xm y+14 Checked", "Start with Windows")
+
+    openButton := WelcomeGui.AddButton("x" (WelcomeGui.MarginX + TextWidth - 186) " y+16 w100 h26 Default", "Open launcher")
+    openButton.OnEvent("Click", WelcomeOpenLauncher)
+    closeButton := WelcomeGui.AddButton("x+6 yp w80 h26", "Close")
+    closeButton.OnEvent("Click", WelcomeClose)
+
+    WelcomeGui.OnEvent("Close", WelcomeClose)
+    WelcomeGui.OnEvent("Escape", WelcomeClose)
+    SetWindowIcon(WelcomeGui)
+    WelcomeGui.Show("AutoSize Center")
+}
+
+WelcomeOpenLauncher(*) {
+    FinishWelcome()
+    ShowLauncher()
+}
+
+WelcomeClose(*) {
+    FinishWelcome()
+}
+
+; Applies the checkbox, whichever way the welcome window is closed.
+FinishWelcome() {
+    global WelcomeGui, WelcomeStartup
+    SetStartWithWindows(WelcomeStartup.Value = 1)
+    WelcomeGui.Destroy()
+    WelcomeGui := ""
 }
 
 OpenChangelog(*) {
@@ -1554,19 +1643,7 @@ ShowOnboardingIfNeeded() {
         return
 
     IniWrite(1, ConfigFile, "Settings", "OnboardingShown")
-
-    answer := MsgBox(
-        "Your launcher is ready.`n`n"
-        "Press Ctrl+Alt+Space to open it.`n"
-        "Type to find a favorite.`n"
-        "Press Enter to open it.`n`n"
-        "Choose Open launcher to try it now.",
-        "Favorite Launcher",
-        "OKCancel Iconi 0x40000"
-    )
-
-    if answer = "OK"
-        ShowLauncher()
+    ShowWelcome()
 }
 
 #HotIf IsLauncherActive()

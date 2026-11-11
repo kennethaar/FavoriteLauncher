@@ -39,7 +39,8 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 - In the launcher (`#HotIf IsLauncherActive()`): type to filter, Up/Down to move, Enter to open, F2 edit, Delete remove, Esc hide.
 - Each favorite can have an optional direct global hotkey, registered via `Hotkey()` in `RegisterAllHotkeys()`.
 - Opening a folder while a standard file dialog (`#32770`) is active navigates that dialog instead of opening Explorer (`NavigateFileDialog`).
-- Tray menu: Open launcher (default; single click on the tray icon) / What's new (changelog on GitHub) / About / Exit.
+- Tray menu: Open launcher (default; single click on the tray icon) / Start with Windows (checkmark) / What's new (changelog on GitHub) / About / Exit.
+- Start with Windows = a shortcut in the user's Startup folder (`StartupShortcut`); tests point it at a temp folder. First run shows a welcome window with a "Start with Windows" checkbox (checked).
 
 ## Data
 
