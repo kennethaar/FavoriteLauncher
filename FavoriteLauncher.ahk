@@ -1,32 +1,53 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+;@Ahk2Exe-SetVersion 1.1.0
+;@Ahk2Exe-SetMainIcon FavoriteLauncher.ico
 
 SendMode("Input")
-SetWorkingDir(A_ScriptDir)
 
-global ConfigFile := A_ScriptDir "\FavoriteLauncher.ini"
+; Semantic version (MAJOR.MINOR.PATCH). Keep in sync with ;@Ahk2Exe-SetVersion and CHANGELOG.md.
+global AppVersion := "1.1.0"
+
+; Folder of this file, also when the test suite includes it from tests\.
+global AppDir := A_IsCompiled ? A_ScriptDir : RegExReplace(A_LineFile, "\\[^\\]+$")
+global ConfigFile := AppDir "\FavoriteLauncher.ini"
 global Favorites := []
 global VisibleFavorites := []
 global RegisteredHotkeys := Map()
 global MainGui := "", SearchBox := "", FavoritesList := "", FooterText := ""
+global AddButton := "", ListRowHeight := 0
 global AboutGui := ""
 global EditorGui := "", EditorName := "", EditorType := "", EditorTarget := ""
 global EditorHotkey := "", EditorBrowseButton := ""
 global EditingIndex := 0, SelectedRow := 0
 global FavoriteImageList := 0, IconCache := Map()
+global AppIconFile := AppDir "\FavoriteLauncher.ico"
 
-if FileExist(A_ScriptDir "\FavoriteLauncher.ico")
-    TraySetIcon(A_ScriptDir "\FavoriteLauncher.ico")
-
-A_IconTip := "Favorite Launcher"
-
-ConfigureTrayMenu()
-LoadFavorites()
-RegisterAllHotkeys()
-CreateMainGui()
-ShowOnboardingIfNeeded()
+; Start only when run directly. The test suite includes this file without starting the app.
+if A_IsCompiled || A_LineFile = A_ScriptFullPath
+    StartLauncher()
 
 ^!Space::ShowLauncher()
+
+StartLauncher() {
+    global AppDir, AppIconFile
+
+    SetWorkingDir(AppDir)
+
+    if FileExist(AppIconFile) {
+        try TraySetIcon(AppIconFile)
+        catch Error as err
+            TrayTip("Could not load FavoriteLauncher.ico:`n" err.Message, "Favorite Launcher", "Iconx")
+    }
+
+    A_IconTip := "Favorite Launcher " AppVersion
+
+    ConfigureTrayMenu()
+    LoadFavorites()
+    RegisterAllHotkeys()
+    CreateMainGui()
+    ShowOnboardingIfNeeded()
+}
 
 ConfigureTrayMenu() {
     A_TrayMenu.Delete()
@@ -60,6 +81,7 @@ ShowAbout(*) {
     AboutGui.AddText("xm ym", "Favorite Launcher")
 
     AboutGui.SetFont("s10 norm", "Segoe UI")
+    AboutGui.AddText("xm y+2 c666666", "Version " AppVersion)
     AboutGui.AddText(
         "xm y+12 w380",
         "Open folders, files, programs and websites without searching through menus."
@@ -81,6 +103,7 @@ ShowAbout(*) {
     closeButton.OnEvent("Click", CloseAbout)
     AboutGui.OnEvent("Escape", CloseAbout)
     AboutGui.OnEvent("Close", CloseAbout)
+    SetWindowIcon(AboutGui)
     AboutGui.Show("AutoSize Center")
 }
 
@@ -95,9 +118,9 @@ ExitLauncher(*) {
 }
 
 CreateMainGui() {
-    global MainGui, SearchBox, FavoritesList, FooterText, FavoriteImageList
+    global MainGui, SearchBox, FavoritesList, FooterText, FavoriteImageList, AddButton
 
-    MainGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", "Favorites")
+    MainGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", "FavoriteLauncher")
     MainGui.SetFont("s10", "Segoe UI")
     MainGui.MarginX := 14
     MainGui.MarginY := 14
@@ -113,15 +136,15 @@ CreateMainGui() {
     FavoritesList.ModifyCol(1, 375)
     FavoritesList.ModifyCol(2, 135)
 
-    FavoriteImageList := IL_Create(10, 10, true)
+    FavoriteImageList := IL_Create(10, 10, false)
     FavoritesList.SetImageList(FavoriteImageList, 1)
     FavoritesList.OnEvent("Click", ListItemClicked)
     FavoritesList.OnEvent("DoubleClick", OpenSelected)
     FavoritesList.OnEvent("ItemFocus", ListItemFocused)
     FavoritesList.OnEvent("ContextMenu", ShowItemContextMenu)
 
-    addButton := MainGui.AddButton("xm y+10 w90 h30", "+ Add")
-    addButton.OnEvent("Click", AddFavorite)
+    AddButton := MainGui.AddButton("xm y+10 w90 h30", "+ Add")
+    AddButton.OnEvent("Click", AddFavorite)
 
     FooterText := MainGui.AddText(
         "x+12 yp+6 w430 c666666 Right",
@@ -130,6 +153,109 @@ CreateMainGui() {
 
     MainGui.OnEvent("Escape", HideLauncher)
     MainGui.OnEvent("Close", HideLauncher)
+    SetWindowIcon(MainGui)
+}
+
+; Puts FavoriteLauncher.ico on a window's title bar and taskbar button.
+SetWindowIcon(guiObj) {
+    static WM_SETICON := 0x80, ICON_SMALL := 0, ICON_BIG := 1
+
+    smallIcon := GetAppIcon("small")
+    if !smallIcon
+        return
+
+    ; DllCall instead of SendMessage(): the window may still be hidden.
+    DllCall("SendMessageW", "Ptr", guiObj.Hwnd, "UInt", WM_SETICON, "Ptr", ICON_SMALL, "Ptr", smallIcon)
+    DllCall("SendMessageW", "Ptr", guiObj.Hwnd, "UInt", WM_SETICON, "Ptr", ICON_BIG, "Ptr", GetAppIcon("big"))
+}
+
+; Icon handle from FavoriteLauncher.ico at the system size ("small" or "big"); 0 if it cannot be loaded.
+; Loaded once and kept for the life of the app, because windows keep using the handle.
+GetAppIcon(size) {
+    global AppIconFile
+    static icons := Map()
+
+    if icons.Has(size)
+        return icons[size]
+
+    width := size = "small" ? SysGet(49) : SysGet(11)
+    height := size = "small" ? SysGet(50) : SysGet(12)
+    handle := 0
+    ; Passing &imageType keeps the result an icon instead of a bitmap.
+    if FileExist(AppIconFile)
+        try handle := LoadPicture(AppIconFile, "w" width " h" height, &imageType)
+
+    icons[size] := handle
+    return handle
+}
+
+; Sizes the list to fit all favorites, capping the window at 80% of the screen height.
+FitListToFavorites() {
+    global MainGui, FavoritesList, AddButton, FooterText, Favorites, ListRowHeight
+    static LVM_GETHEADER := 0x101F, LVM_GETITEMRECT := 0x100E
+    static MinRows := 3, GapBelowList := 10, ButtonHeight := 30
+
+    scale := A_ScreenDPI / 96
+
+    ; Row height in pixels; measured from the first row and remembered.
+    if FavoritesList.GetCount() > 0 {
+        itemRect := Buffer(16, 0)
+        if SendMessage(LVM_GETITEMRECT, 0, itemRect.Ptr, FavoritesList)
+            ListRowHeight := NumGet(itemRect, 12, "Int") - NumGet(itemRect, 4, "Int")
+    }
+    rowHeight := ListRowHeight > 0 ? ListRowHeight : Round(20 * scale)
+
+    headerHeight := 0
+    headerHwnd := SendMessage(LVM_GETHEADER, 0, 0, FavoritesList)
+    if headerHwnd
+        headerHeight := GetWindowHeight(headerHwnd)
+
+    borderHeight := GetWindowHeight(FavoritesList.Hwnd) - GetClientHeight(FavoritesList.Hwnd)
+    rows := Max(Favorites.Length, MinRows)
+    wantedPx := borderHeight + headerHeight + rows * rowHeight
+
+    ; Everything in the window that is not the list, in pixels.
+    FavoritesList.GetPos(, &listY)
+    frameHeight := GetFrameHeight(MainGui.Hwnd)
+    otherPx := frameHeight + Round((listY + GapBelowList + ButtonHeight + MainGui.MarginY) * scale)
+    maxListPx := Floor(A_ScreenHeight * 0.8) - otherPx - Ceil(scale)
+    minListPx := borderHeight + headerHeight + MinRows * rowHeight
+
+    listHeight := Ceil(Max(minListPx, Min(wantedPx, maxListPx)) / scale)
+
+    FavoritesList.GetPos(, , , &currentHeight)
+    if currentHeight = listHeight
+        return
+
+    FavoritesList.Move(, , , listHeight)
+    buttonY := listY + listHeight + GapBelowList
+    AddButton.Move(, buttonY)
+    FooterText.Move(, buttonY + 6)
+
+    if DllCall("IsWindowVisible", "Ptr", MainGui.Hwnd)
+        MainGui.Show("AutoSize NA")
+}
+
+GetWindowHeight(hwnd) {
+    rect := Buffer(16, 0)
+    DllCall("GetWindowRect", "Ptr", hwnd, "Ptr", rect.Ptr)
+    return NumGet(rect, 12, "Int") - NumGet(rect, 4, "Int")
+}
+
+; Title bar + borders, from the window style (works before the window is first shown).
+GetFrameHeight(hwnd) {
+    static GWL_STYLE := -16, GWL_EXSTYLE := -20
+    rect := Buffer(16, 0)
+    style := DllCall("GetWindowLongPtrW", "Ptr", hwnd, "Int", GWL_STYLE, "Ptr")
+    exStyle := DllCall("GetWindowLongPtrW", "Ptr", hwnd, "Int", GWL_EXSTYLE, "Ptr")
+    DllCall("AdjustWindowRectEx", "Ptr", rect.Ptr, "UInt", style, "Int", false, "UInt", exStyle)
+    return NumGet(rect, 12, "Int") - NumGet(rect, 4, "Int")
+}
+
+GetClientHeight(hwnd) {
+    rect := Buffer(16, 0)
+    DllCall("GetClientRect", "Ptr", hwnd, "Ptr", rect.Ptr)
+    return NumGet(rect, 12, "Int")
 }
 
 SetEditPlaceholder(editControl, placeholder) {
@@ -204,6 +330,7 @@ RefreshList(filter := "") {
     }
 
     UpdateFooter()
+    FitListToFavorites()
 }
 
 GetMatchRank(favorite, filter) {
@@ -468,14 +595,14 @@ OpenFavoriteByIndex(index, *) {
         MsgBox(
             "Could not open:`n`n" favorite.Target "`n`n" err.Message,
             "Favorite Launcher",
-            "Iconx"
+            "Iconx 0x40000"
         )
     }
 }
 
 OpenFolder(path) {
     if !DirExist(path) {
-        MsgBox("The folder does not exist:`n`n" path, "Favorite Launcher", "Iconx")
+        MsgBox("The folder does not exist:`n`n" path, "Favorite Launcher", "Iconx 0x40000")
         return
     }
 
@@ -486,7 +613,7 @@ OpenFolder(path) {
 
 OpenFile(path) {
     if !FileExist(path) {
-        MsgBox("The file does not exist:`n`n" path, "Favorite Launcher", "Iconx")
+        MsgBox("The file does not exist:`n`n" path, "Favorite Launcher", "Iconx 0x40000")
         return
     }
     Run(path)
@@ -531,7 +658,8 @@ OpenEditor(index := 0) {
         try EditorGui.Destroy()
 
     windowTitle := index = 0 ? "Add favorite" : "Edit favorite"
-    EditorGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", windowTitle)
+    ; Owned by the launcher so it always stays in front of it (modal dialog).
+    EditorGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +Owner" MainGui.Hwnd, windowTitle)
     EditorGui.SetFont("s10", "Segoe UI")
     EditorGui.MarginX := 16
     EditorGui.MarginY := 16
@@ -569,6 +697,7 @@ OpenEditor(index := 0) {
 
     EditorGui.OnEvent("Escape", CloseEditor)
     EditorGui.OnEvent("Close", CloseEditor)
+    SetWindowIcon(EditorGui)
 
     if index > 0 {
         favorite := Favorites[index]
@@ -603,8 +732,9 @@ SuggestEditorName(*) {
 
 CloseEditor(*) {
     global EditorGui, MainGui, SearchBox
-    try EditorGui.Destroy()
+    ; Re-enable the owner first so Windows hands focus back to it, not another app.
     MainGui.Opt("-Disabled")
+    try EditorGui.Destroy()
     MainGui.Show()
     SearchBox.Focus()
 }
@@ -623,7 +753,8 @@ EditorTypeChanged(*) {
 }
 
 BrowseEditorTarget(*) {
-    global EditorType, EditorTarget, EditorName
+    global EditorGui, EditorType, EditorTarget, EditorName
+    EditorGui.Opt("+OwnDialogs")
     type := DropdownIndexToType(EditorType.Value)
     selectedTarget := ""
 
@@ -656,7 +787,8 @@ ClearEditorShortcut(*) {
 
 SaveEditor(*) {
     global Favorites, EditingIndex, EditorName, EditorTarget
-    global EditorType, EditorHotkey, SearchBox
+    global EditorGui, EditorType, EditorHotkey, SearchBox
+    EditorGui.Opt("+OwnDialogs")
 
     name := Trim(EditorName.Value)
     target := Trim(EditorTarget.Value)
@@ -785,7 +917,8 @@ ShowItemContextMenu(listView, row, isRightClick, mouseX, mouseY) {
 }
 
 RemoveSelected(*) {
-    global Favorites, SearchBox
+    global Favorites, SearchBox, MainGui
+    MainGui.Opt("+OwnDialogs")
     index := GetSelectedOriginalIndex()
     if index = 0
         return
@@ -1070,7 +1203,7 @@ ShowOnboardingIfNeeded() {
         "Press Enter to open it.`n`n"
         "Choose Open launcher to try it now.",
         "Favorite Launcher",
-        "OKCancel Iconi"
+        "OKCancel Iconi 0x40000"
     )
 
     if answer = "OK"
