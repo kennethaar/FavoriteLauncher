@@ -3,6 +3,15 @@
 All notable changes to FavoriteLauncher. Versions follow [Semantic Versioning](https://semver.org/):
 MAJOR for incompatible changes (for example to the ini format), MINOR for new features, PATCH for bug fixes.
 
+## [1.3.0] - 2026-11-11
+
+### Added
+- New favorite type **Command**: a command line such as `ipconfig /all`. You choose whether the window stays open to show the output or the command runs hidden. (#10)
+- Icons and short examples on the Add choices. (#10)
+
+### Changed
+- All windows use the standard Windows font size (9pt) with smaller fields, buttons and spacing. (#10)
+
 ## [1.2.0] - 2026-11-11
 
 ### Added

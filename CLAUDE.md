@@ -45,8 +45,8 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 
 - Favorites persist in `FavoriteLauncher.ini` next to the script (gitignored — user-specific).
   - `[Settings]`: `Count`, `OnboardingShown`
-  - `[FavoriteN]`: `Name`, `Target`, `Type`, `Hotkey`
-- Favorite types: `folder`, `document`, `program`, `link`. Unknown types load as `folder`.
+  - `[FavoriteN]`: `Name`, `Target`, `Type`, `Hotkey`, and for commands `KeepOpen` (1 = console stays open via `cmd /k`, 0 = hidden via `cmd /c`; missing = 1)
+- Favorite types: `folder`, `document`, `program`, `link`, `command`. Unknown types load as `folder`.
 - If the ini is missing, defaults (Desktop, Downloads, Pictures) are created and the onboarding message is shown once.
 - `Favorites` is kept sorted by name; `VisibleFavorites` holds the filtered/ranked view with `OriginalIndex` back into `Favorites`.
 
@@ -56,7 +56,7 @@ Single-file AutoHotkey v2 tray app (`FavoriteLauncher.ahk`) for quickly opening 
 - Search ranking in `GetMatchRank` (lower = better; 100 = no match). Sorting uses hand-written insertion sorts.
 - Icons come from `SHGetFileInfoW` with a cache keyed by type/extension (`IconCache`); call `ClearIconCache()` after edits.
 - When changing favorites: `UnregisterAllHotkeys()` → mutate → `SaveFavorites()` → `RegisterAllHotkeys()` → `ClearIconCache()` → `RefreshList()`.
-- UI font: Segoe UI s10; secondary text color `c666666`.
+- UI font: Segoe UI s9 (fields h24, buttons h26, margins 12); secondary text color `c666666`.
 - Every new `Gui` calls `SetWindowIcon(gui)`. Windows opened from the launcher use `+Owner` + `MainGui.Hwnd` so they stay in front.
 - Dialogs must open in front of the always-on-top windows. Call `someGui.Opt("+OwnDialogs")` in the handler before any `MsgBox`/`FileSelect`/`DirSelect`. A `MsgBox` shown while no app window is visible gets the `0x40000` (always-on-top) option.
 - The list height is set by `FitListToFavorites()` from the total number of favorites (min 3 rows, window at most 80% of the screen height). It is called from `RefreshList()`.

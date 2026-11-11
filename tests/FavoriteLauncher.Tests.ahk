@@ -12,7 +12,7 @@
 
 global TestDir := A_Temp "\FavoriteLauncherTests"
 global PassedCount := 0, FailedCount := 0
-global DialogOwner := 0
+global DialogOwner := 0, DialogText := ""
 
 DirCreate(TestDir)
 ConfigFile := TestDir "\FavoriteLauncher.ini"
@@ -73,6 +73,15 @@ RunAllTests([
     Test_CheckShortcut_AltGrCharacterWarns,
     Test_TestButton_ShowsResultUnderShortcut,
     Test_Save_RiskyShortcutAsksFirst,
+
+    ; Smaller UI, icons on the Add choices, Command type
+    Test_Fonts_AreNinePointEverywhere,
+    Test_AddStep1_ListsFiveTypesWithIconsAndHints,
+    Test_AddStep1_CommandGoesToStep2WithKeepOpen,
+    Test_Edit_CommandShowsSavedKeepOpen,
+    Test_Command_SaveAndLoadKeepsKeepOpen,
+    Test_Command_RunLineUsesCmd,
+    Test_GetDefaultName_FromCommand,
 ])
 
 ; ---------------------------------------------------------------------------
@@ -333,7 +342,7 @@ Test_AddStep1_AsksWhatToAdd() {
         allText := GetGuiText(EditorGui)
         AssertTrue(InStr(allText, "Step 1 of 2"), "shows 'Step 1 of 2'")
         AssertTrue(InStr(allText, "What do you want to add?"), "asks what to add")
-        for label in ["&Folder...", "&Document...", "&Program...", "&Web address", "Cancel"]
+        for label in ["&Folder...", "&Document...", "&Program...", "&Web address", "&Command", "Cancel"]
             AssertTrue(InStr(allText, label "`n"), "has button " label)
         AssertEqual(CountControls(EditorGui, "Edit"), 0, "no text fields before the location is chosen")
     } finally {
@@ -530,7 +539,7 @@ Test_Save_RiskyShortcutAsksFirst() {
 
         WatchForDialog("Button1")    ; Yes
         SaveEditor()
-        AssertEqual(Favorites.Length, 4, "added after answering Yes")
+        AssertEqual(Favorites.Length, 4, "added after answering Yes [dialog: " StrReplace(DialogText, "`r`n", " / ") "]")
         AssertEqual(FindFavoriteByName("Risky").Hotkey, "!p", "shortcut kept")
     } finally {
         UnregisterAllHotkeys()
@@ -539,7 +548,152 @@ Test_Save_RiskyShortcutAsksFirst() {
 }
 
 ; ---------------------------------------------------------------------------
+; Smaller UI, icons on the Add choices, Command type
+
+Test_Fonts_AreNinePointEverywhere() {
+    global AboutGui
+    SetUpLauncher(3)
+    AssertEqual(GetFontPoints(SearchBox), 9, "launcher search box")
+    AssertEqual(GetFontPoints(FavoritesList), 9, "launcher list")
+    AssertEqual(GetFontPoints(AddButton), 9, "launcher Add button")
+
+    AddFavorite()
+    try {
+        for control in EditorGui {
+            if control.Type = "Button" {
+                AssertEqual(GetFontPoints(control), 9, "Add step 1 button " control.Text)
+                break
+            }
+        }
+    } finally {
+        CloseEditor()
+    }
+
+    ContinueWithTarget("folder", A_WinDir)
+    try {
+        AssertEqual(GetFontPoints(EditorName), 9, "name field")
+        AssertEqual(GetFontPoints(EditorShortcutStatus), 9, "shortcut status")
+    } finally {
+        CloseEditor()
+    }
+
+    ShowAbout()
+    try {
+        for control in AboutGui {
+            if control.Type = "Button"
+                AssertEqual(GetFontPoints(control), 9, "About Close button")
+        }
+    } finally {
+        AboutGui.Destroy()
+        AboutGui := ""
+    }
+}
+
+Test_AddStep1_ListsFiveTypesWithIconsAndHints() {
+    static BM_GETIMAGE := 0xF6, IMAGE_ICON := 1
+    SetUpLauncher(3)
+    AddFavorite()
+    try {
+        buttons := Map()
+        for control in EditorGui {
+            if control.Type = "Button"
+                buttons[control.Text] := control
+        }
+        choices := [["&Folder...", "folder"], ["&Document...", "document"], ["&Program...", "program"],
+            ["&Web address", "link"], ["&Command", "command"]]
+        previousY := -1
+        for choice in choices {
+            AssertTrue(buttons.Has(choice[1]), "has button " choice[1])
+            button := buttons[choice[1]]
+            image := SendMessage(BM_GETIMAGE, IMAGE_ICON, 0, button)
+            AssertTrue(image != 0, choice[1] " shows an icon")
+            AssertEqual(image, GetTypeIcon(choice[2]), choice[1] " shows the " choice[2] " icon")
+            button.GetPos(, &buttonY)
+            AssertTrue(buttonY > previousY, choice[1] " is below the previous choice (one per row)")
+            previousY := buttonY
+        }
+        allText := GetGuiText(EditorGui)
+        AssertTrue(InStr(allText, "ipconfig /all"), "Command has an example hint")
+        AssertTrue(InStr(allText, "example.com"), "Web address has an example hint")
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_AddStep1_CommandGoesToStep2WithKeepOpen() {
+    SetUpLauncher(3)
+    AddFavorite()
+    WatchForDialog()
+    ChooseAddType("command")
+    try {
+        AssertEqual(DialogOwner, 0, "no picker for a command")
+        allText := GetGuiText(EditorGui)
+        AssertTrue(InStr(allText, "Command`n"), "location is labelled 'Command'")
+        AssertFalse(InStr(allText, "Change..."), "no Change... button for a command")
+        AssertEqual(EditorTarget.Value, "", "command starts empty")
+        AssertEqual(EditorKeepOpen.Text, "Keep window open to show output", "checkbox label")
+        AssertEqual(EditorKeepOpen.Value, 1, "keeps the window open by default")
+
+        EditorTarget.Value := "ipconfig /all"
+        SuggestEditorName()
+        EditorKeepOpen.Value := 0
+        SaveEditor()
+        added := FindFavoriteByName("ipconfig /all")
+        AssertTrue(IsObject(added), "command favorite added")
+        AssertEqual(added.Type "|" added.Target "|" added.KeepOpen, "command|ipconfig /all|0", "saved command")
+    } finally {
+        CloseEditor()
+    }
+}
+
+Test_Edit_CommandShowsSavedKeepOpen() {
+    global Favorites
+    SetUpLauncher(0)
+    Favorites := [MakeFavorite("Ping", "ping localhost", "command", "", false)]
+    OpenEditor(1)
+    try AssertEqual(EditorKeepOpen.Value, 0, "checkbox shows the saved choice")
+    finally CloseEditor()
+}
+
+Test_Command_SaveAndLoadKeepsKeepOpen() {
+    global Favorites
+    Favorites := [
+        MakeFavorite("Hidden", "echo hi", "command", "", false),
+        MakeFavorite("Shown", "ipconfig", "command", "", true)
+    ]
+    SaveFavorites()
+    Favorites := []
+    LoadFavorites()
+    AssertEqual(Favorites.Length, 2, "count")
+    AssertEqual(Favorites[1].Type "|" Favorites[1].KeepOpen, "command|0", "Hidden runs without a window")
+    AssertEqual(Favorites[2].Type "|" Favorites[2].KeepOpen, "command|1", "Shown keeps its window")
+}
+
+Test_Command_RunLineUsesCmd() {
+    AssertEqual(GetCommandRunLine('git status', true), A_ComSpec ' /k "git status"', "keep open uses /k")
+    AssertEqual(GetCommandRunLine('"C:\My Tools\x.exe" -v', false), A_ComSpec ' /c ""C:\My Tools\x.exe" -v"',
+        "run and close uses /c, quotes kept")
+}
+
+Test_GetDefaultName_FromCommand() {
+    AssertEqual(GetDefaultName("ipconfig /all", "command"), "ipconfig /all", "short command")
+    long := "powershell -NoProfile -Command Get-ChildItem C:\Temp -Recurse"
+    name := GetDefaultName(long, "command")
+    AssertTrue(StrLen(name) <= 40, "long command shortened (" StrLen(name) " chars)")
+    AssertTrue(StartsWith(name, "powershell -NoProfile"), "starts like the command")
+}
+
+; ---------------------------------------------------------------------------
 ; Helpers
+
+; Font size in points that a control is drawn with.
+GetFontPoints(control) {
+    static WM_GETFONT := 0x31
+    fontHandle := SendMessage(WM_GETFONT, 0, 0, control)
+    logFont := Buffer(92, 0)
+    DllCall("GetObjectW", "Ptr", fontHandle, "Int", 92, "Ptr", logFont)
+    return Round(Abs(NumGet(logFont, 0, "Int")) * 72 / A_ScreenDPI)
+}
 
 ; All control texts of a window, one per line.
 GetGuiText(guiObj) {
@@ -568,8 +722,8 @@ FindFavoriteByName(name) {
     return ""
 }
 
-MakeFavorite(name, target, type := "folder", hotkeyValue := "") {
-    return {Name: name, Target: target, Type: type, Hotkey: hotkeyValue}
+MakeFavorite(name, target, type := "folder", hotkeyValue := "", keepOpen := true) {
+    return {Name: name, Target: target, Type: type, Hotkey: hotkeyValue, KeepOpen: keepOpen}
 }
 
 ReadAppVersion() {
@@ -627,6 +781,8 @@ WatchForDialog(buttonToClick := "") {
         }
         SetTimer(CheckForDialog, 0)
         DialogOwner := GetOwner(dialog)
+        global DialogText
+        DialogText := WinGetText(dialog)
         if buttonToClick != ""
             ControlClick(buttonToClick, dialog)
         else

@@ -1,6 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-;@Ahk2Exe-SetVersion 1.2.0
+;@Ahk2Exe-SetVersion 1.3.0
 ;@Ahk2Exe-SetMainIcon FavoriteLauncher.ico
 ;@Ahk2Exe-SetDescription FavoriteLauncher
 ;@Ahk2Exe-SetProductName FavoriteLauncher
@@ -8,7 +8,7 @@
 SendMode("Input")
 
 ; Semantic version (MAJOR.MINOR.PATCH). Keep in sync with ;@Ahk2Exe-SetVersion and CHANGELOG.md.
-global AppVersion := "1.2.0"
+global AppVersion := "1.3.0"
 
 ; Folder of this file, also when the test suite includes it from tests\.
 global AppDir := A_IsCompiled ? A_ScriptDir : RegExReplace(A_LineFile, "\\[^\\]+$")
@@ -21,6 +21,7 @@ global AddButton := "", ListRowHeight := 0
 global AboutGui := ""
 global EditorGui := "", EditorName := "", EditorTypeValue := "folder", EditorTarget := ""
 global EditorHotkey := "", EditorShortcutStatus := "", EditorAutoName := "", EditorReplacedGui := ""
+global EditorKeepOpen := ""
 global EditingIndex := 0, SelectedRow := 0
 global FavoriteImageList := 0, IconCache := Map()
 global AppIconFile := AppDir "\FavoriteLauncher.ico"
@@ -75,21 +76,21 @@ ShowAbout(*) {
         "+AlwaysOnTop -MaximizeBox -MinimizeBox",
         "About Favorite Launcher"
     )
-    AboutGui.SetFont("s10", "Segoe UI")
-    AboutGui.MarginX := 22
-    AboutGui.MarginY := 20
+    AboutGui.SetFont("s9", "Segoe UI")
+    AboutGui.MarginX := 18
+    AboutGui.MarginY := 16
 
-    AboutGui.SetFont("s15 w600", "Segoe UI")
+    AboutGui.SetFont("s13 w600", "Segoe UI")
     AboutGui.AddText("xm ym", "Favorite Launcher")
 
-    AboutGui.SetFont("s10 norm", "Segoe UI")
+    AboutGui.SetFont("s9 norm", "Segoe UI")
     AboutGui.AddText("xm y+2 c666666", "Version " AppVersion)
     AboutGui.AddText(
-        "xm y+12 w380",
-        "Open folders, files, programs and websites without searching through menus."
+        "xm y+10 w340",
+        "Open folders, files, programs, websites and commands without searching through menus."
     )
     AboutGui.AddText(
-        "xm y+16 w380",
+        "xm y+12 w340",
         "Ctrl+Alt+Space  Open launcher`n"
         "Type  Find a favorite`n"
         "Enter  Open selected favorite`n"
@@ -97,11 +98,11 @@ ShowAbout(*) {
         "Delete  Remove selected favorite"
     )
     AboutGui.AddText(
-        "xm y+16 w380 c666666",
+        "xm y+12 w340 c666666",
         "Favorites are stored locally in FavoriteLauncher.ini."
     )
 
-    closeButton := AboutGui.AddButton("xm y+20 w90 h30 Default", "Close")
+    closeButton := AboutGui.AddButton("xm y+16 w80 h26 Default", "Close")
     closeButton.OnEvent("Click", CloseAbout)
     AboutGui.OnEvent("Escape", CloseAbout)
     AboutGui.OnEvent("Close", CloseAbout)
@@ -123,20 +124,20 @@ CreateMainGui() {
     global MainGui, SearchBox, FavoritesList, FooterText, FavoriteImageList, AddButton
 
     MainGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", "FavoriteLauncher")
-    MainGui.SetFont("s10", "Segoe UI")
-    MainGui.MarginX := 14
-    MainGui.MarginY := 14
+    MainGui.SetFont("s9", "Segoe UI")
+    MainGui.MarginX := 12
+    MainGui.MarginY := 12
 
-    SearchBox := MainGui.AddEdit("xm ym w540 h34")
+    SearchBox := MainGui.AddEdit("xm ym w480 h26")
     SetEditPlaceholder(SearchBox, "Type to search...")
     SearchBox.OnEvent("Change", FilterFavorites)
 
     FavoritesList := MainGui.AddListView(
-        "xm y+9 w540 h370 -Multi NoSortHdr +LV0x20",
+        "xm y+8 w480 h370 -Multi NoSortHdr +LV0x20",
         ["Name", "Shortcut"]
     )
-    FavoritesList.ModifyCol(1, 375)
-    FavoritesList.ModifyCol(2, 135)
+    FavoritesList.ModifyCol(1, 320)
+    FavoritesList.ModifyCol(2, 130)
 
     FavoriteImageList := IL_Create(10, 10, false)
     FavoritesList.SetImageList(FavoriteImageList, 1)
@@ -145,11 +146,11 @@ CreateMainGui() {
     FavoritesList.OnEvent("ItemFocus", ListItemFocused)
     FavoritesList.OnEvent("ContextMenu", ShowItemContextMenu)
 
-    AddButton := MainGui.AddButton("xm y+10 w90 h30", "+ Add")
+    AddButton := MainGui.AddButton("xm y+8 w80 h26", "+ Add")
     AddButton.OnEvent("Click", AddFavorite)
 
     FooterText := MainGui.AddText(
-        "x+12 yp+6 w430 c666666 Right",
+        "x+12 yp+5 w388 c666666 Right",
         "Enter to open"
     )
 
@@ -195,7 +196,7 @@ GetAppIcon(size) {
 FitListToFavorites() {
     global MainGui, FavoritesList, AddButton, FooterText, Favorites, ListRowHeight
     static LVM_GETHEADER := 0x101F, LVM_GETITEMRECT := 0x100E
-    static MinRows := 3, GapBelowList := 10, ButtonHeight := 30
+    static MinRows := 3, GapBelowList := 8, ButtonHeight := 26
 
     scale := A_ScreenDPI / 96
 
@@ -232,7 +233,7 @@ FitListToFavorites() {
     FavoritesList.Move(, , , listHeight)
     buttonY := listY + listHeight + GapBelowList
     AddButton.Move(, buttonY)
-    FooterText.Move(, buttonY + 6)
+    FooterText.Move(, buttonY + 5)
 
     if DllCall("IsWindowVisible", "Ptr", MainGui.Hwnd)
         MainGui.Show("AutoSize NA")
@@ -416,6 +417,8 @@ GetIconCacheKey(favorite) {
         return "folder"
     if favorite.Type = "link"
         return "link"
+    if favorite.Type = "command"
+        return "command"
 
     SplitPath(favorite.Target, , , &extension)
     extension := StrLower(extension)
@@ -427,6 +430,19 @@ GetIconCacheKey(favorite) {
 AddShellIcon(target, type) {
     global FavoriteImageList
 
+    iconHandle := GetShellIconHandle(target, type)
+    if !iconHandle
+        return 0
+
+    iconNumber := 0
+    try iconNumber := IL_Add(FavoriteImageList, "HICON:" iconHandle)
+    finally DllCall("DestroyIcon", "Ptr", iconHandle)
+
+    return iconNumber
+}
+
+; Small shell icon for a target (the caller owns the handle); 0 if there is none.
+GetShellIconHandle(target, type) {
     static SHGFI_ICON := 0x100
     static SHGFI_SMALLICON := 0x1
     static SHGFI_USEFILEATTRIBUTES := 0x10
@@ -444,6 +460,8 @@ AddShellIcon(target, type) {
     } else if type = "link" {
         shellTarget := "FavoriteLauncher.url"
         flags |= SHGFI_USEFILEATTRIBUTES
+    } else if type = "command" {
+        shellTarget := A_ComSpec    ; the Command Prompt icon
     } else if !FileExist(target) {
         flags |= SHGFI_USEFILEATTRIBUTES
     }
@@ -464,15 +482,7 @@ AddShellIcon(target, type) {
     if result = 0
         return 0
 
-    iconHandle := NumGet(shellFileInfo, 0, "Ptr")
-    if !iconHandle
-        return 0
-
-    iconNumber := 0
-    try iconNumber := IL_Add(FavoriteImageList, "HICON:" iconHandle)
-    finally DllCall("DestroyIcon", "Ptr", iconHandle)
-
-    return iconNumber
+    return NumGet(shellFileInfo, 0, "Ptr")
 }
 
 AddFallbackIcon(type) {
@@ -582,6 +592,7 @@ OpenFavoriteByIndex(index, *) {
             case "folder": OpenFolder(favorite.Target)
             case "document", "program": OpenFile(favorite.Target)
             case "link": OpenLink(favorite.Target)
+            case "command": RunCommand(favorite)
             default: Run(favorite.Target)
         }
     } catch Error as err {
@@ -649,43 +660,66 @@ OpenEditor(index) {
         Name: favorite.Name,
         Target: favorite.Target,
         Type: favorite.Type,
-        Hotkey: favorite.Hotkey
+        Hotkey: favorite.Hotkey,
+        KeepOpen: GetKeepOpen(favorite)
     })
 }
 
-; Add favorite, step 1: what to add. Choosing a type opens its picker right away.
+; Add favorite, step 1: what to add, one choice per row with its icon and an example.
+; Choosing a folder, document or program opens its picker right away.
 ShowAddStep1(*) {
     global EditorGui, EditingIndex
-    static ButtonWidth := 150, Gap := 10
+    static ButtonWidth := 140, ButtonHeight := 28, RowGap := 6, HintWidth := 130
+    static Choices := [
+        ["&Folder...", "folder", "A folder on disk"],
+        ["&Document...", "document", "A file to open"],
+        ["&Program...", "program", "An app (.exe)"],
+        ["&Web address", "link", "example.com"],
+        ["&Command", "command", "ipconfig /all"]
+    ]
 
     EditingIndex := 0
     CreateEditorWindow("Add favorite")
 
     EditorGui.AddText("xm ym c666666", "Step 1 of 2")
-    EditorGui.SetFont("s12 w600")
+    EditorGui.SetFont("s11 w600")
     EditorGui.AddText("xm y+2", "What do you want to add?")
-    EditorGui.SetFont("s10 norm")
+    EditorGui.SetFont("s9 norm")
 
-    folderButton := EditorGui.AddButton("xm y+14 w" ButtonWidth " h34", "&Folder...")
-    folderButton.OnEvent("Click", ChooseAddType.Bind("folder"))
-    documentButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h34", "&Document...")
-    documentButton.OnEvent("Click", ChooseAddType.Bind("document"))
-    programButton := EditorGui.AddButton("xm y+" Gap " w" ButtonWidth " h34", "&Program...")
-    programButton.OnEvent("Click", ChooseAddType.Bind("program"))
-    linkButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h34", "&Web address")
-    linkButton.OnEvent("Click", ChooseAddType.Bind("link"))
+    firstButton := ""
+    for choice in Choices {
+        ; Rows are placed from the previous hint, which sits 6 px below its button's top.
+        position := A_Index = 1 ? "xm y+12" : "xm yp+" (ButtonHeight + RowGap - 6)
+        button := EditorGui.AddButton(position " w" ButtonWidth " h" ButtonHeight " Left", choice[1])
+        button.OnEvent("Click", ChooseAddType.Bind(choice[2]))
+        SetButtonIcon(button, GetTypeIcon(choice[2]))
+        EditorGui.AddText("x+10 yp+6 w" HintWidth " c666666", choice[3])
+        if A_Index = 1
+            firstButton := button
+    }
 
-    cancelX := EditorGui.MarginX + 2 * ButtonWidth + Gap - 90
-    cancelButton := EditorGui.AddButton("x" cancelX " y+20 w90 h30", "Cancel")
+    cancelX := EditorGui.MarginX + ButtonWidth + 10 + HintWidth - 80
+    cancelButton := EditorGui.AddButton("x" cancelX " yp+" (ButtonHeight + 10) " w80 h26", "Cancel")
     cancelButton.OnEvent("Click", CloseEditor)
 
     ShowEditorWindow()
-    folderButton.Focus()
+    firstButton.Focus()
+}
+
+; Shows an icon left of a button's text.
+SetButtonIcon(button, iconHandle) {
+    static BM_SETIMAGE := 0xF7, IMAGE_ICON := 1, BCM_SETTEXTMARGIN := 0x1604
+    if !iconHandle
+        return
+    SendMessage(BM_SETIMAGE, IMAGE_ICON, iconHandle, button)
+    margins := Buffer(16, 0)
+    NumPut("Int", 8, "Int", 0, "Int", 6, "Int", 0, margins)    ; room between icon, edge and text
+    SendMessage(BCM_SETTEXTMARGIN, 0, margins.Ptr, button)
 }
 
 ChooseAddType(type, *) {
-    if type = "link" {
-        ContinueWithTarget("link", "")
+    if type = "link" || type = "command" {
+        ContinueWithTarget(type, "")
         return
     }
 
@@ -697,7 +731,7 @@ ChooseAddType(type, *) {
 ; Add favorite, step 2, for the chosen location.
 ContinueWithTarget(type, target) {
     name := target = "" ? "" : GetDefaultName(target, type)
-    ShowDetailsStep(0, {Name: name, Target: target, Type: type, Hotkey: ""})
+    ShowDetailsStep(0, {Name: name, Target: target, Type: type, Hotkey: "", KeepOpen: true})
 }
 
 GoBackToStep1(*) {
@@ -706,9 +740,9 @@ GoBackToStep1(*) {
 
 ; Add step 2 (index = 0) or the Edit window: location, then name, then shortcut.
 ShowDetailsStep(index, draft) {
-    global EditorGui, EditorName, EditorTarget, EditorHotkey, EditorShortcutStatus
+    global EditorGui, EditorName, EditorTarget, EditorHotkey, EditorShortcutStatus, EditorKeepOpen
     global EditorTypeValue, EditorAutoName, EditingIndex
-    static FieldWidth := 470, ButtonWidth := 90, Gap := 8
+    static FieldWidth := 400, ButtonWidth := 80, Gap := 6
 
     isAdding := index = 0
     EditingIndex := index
@@ -720,42 +754,48 @@ ShowDetailsStep(index, draft) {
 
     if isAdding
         EditorGui.AddText("xm ym c666666", "Step 2 of 2")
-    EditorGui.AddText(isAdding ? "xm y+8" : "xm ym", TypeToLabel(draft.Type))
-    if draft.Type = "link" {
-        EditorTarget := EditorGui.AddEdit("xm y+5 w" FieldWidth " h30", draft.Target)
-        SetEditPlaceholder(EditorTarget, "example.com")
+    EditorGui.AddText(isAdding ? "xm y+6" : "xm ym", TypeToLabel(draft.Type))
+    if draft.Type = "link" || draft.Type = "command" {
+        EditorTarget := EditorGui.AddEdit("xm y+3 w" FieldWidth " h24", draft.Target)
+        SetEditPlaceholder(EditorTarget, draft.Type = "link" ? "example.com" : "ipconfig /all")
     } else {
-        EditorTarget := EditorGui.AddEdit("xm y+5 w" (FieldWidth - 92 - Gap) " h30", draft.Target)
-        changeButton := EditorGui.AddButton("x+" Gap " yp w92 h30", "Change...")
+        EditorTarget := EditorGui.AddEdit("xm y+3 w" (FieldWidth - ButtonWidth - Gap) " h24", draft.Target)
+        changeButton := EditorGui.AddButton("x+" Gap " yp-1 w" ButtonWidth " h26", "Change...")
         changeButton.OnEvent("Click", BrowseEditorTarget)
     }
     EditorTarget.OnEvent("Change", SuggestEditorName)
 
-    EditorGui.AddText("xm y+14", "Name")
-    EditorName := EditorGui.AddEdit("xm y+5 w" FieldWidth " h30", draft.Name)
+    EditorKeepOpen := ""
+    if draft.Type = "command" {
+        EditorKeepOpen := EditorGui.AddCheckbox("xm y+6", "Keep window open to show output")
+        EditorKeepOpen.Value := draft.KeepOpen ? 1 : 0
+    }
 
-    EditorGui.AddText("xm y+14", "Direct shortcut (optional)")
-    EditorHotkey := EditorGui.AddHotkey("xm y+5 w220 h30")
+    EditorGui.AddText("xm y+10", "Name")
+    EditorName := EditorGui.AddEdit("xm y+3 w" FieldWidth " h24", draft.Name)
+
+    EditorGui.AddText("xm y+10", "Direct shortcut (optional)")
+    EditorHotkey := EditorGui.AddHotkey("xm y+3 w" (FieldWidth - 2 * (ButtonWidth + Gap)) " h24")
     EditorHotkey.Value := draft.Hotkey
     EditorHotkey.OnEvent("Change", ResetShortcutStatus)
-    testButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h30", "Test")
+    testButton := EditorGui.AddButton("x+" Gap " yp-1 w" ButtonWidth " h26", "Test")
     testButton.OnEvent("Click", TestEditorShortcut)
-    clearButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h30", "Clear")
+    clearButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h26", "Clear")
     clearButton.OnEvent("Click", ClearEditorShortcut)
-    EditorShortcutStatus := EditorGui.AddText("xm y+8 w" FieldWidth " r2 c666666")
+    EditorShortcutStatus := EditorGui.AddText("xm y+6 w" FieldWidth " r2 c666666")
     ResetShortcutStatus()
 
     buttonCount := isAdding ? 3 : 2
     firstX := EditorGui.MarginX + FieldWidth - buttonCount * ButtonWidth - (buttonCount - 1) * Gap
     if isAdding {
-        backButton := EditorGui.AddButton("x" firstX " y+14 w" ButtonWidth " h32", "< Back")
+        backButton := EditorGui.AddButton("x" firstX " y+10 w" ButtonWidth " h26", "< Back")
         backButton.OnEvent("Click", GoBackToStep1)
-        saveButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h32 Default", "Add")
+        saveButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h26 Default", "Add")
     } else {
-        saveButton := EditorGui.AddButton("x" firstX " y+14 w" ButtonWidth " h32 Default", "Save")
+        saveButton := EditorGui.AddButton("x" firstX " y+10 w" ButtonWidth " h26 Default", "Save")
     }
     saveButton.OnEvent("Click", SaveEditor)
-    cancelButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h32", "Cancel")
+    cancelButton := EditorGui.AddButton("x+" Gap " yp w" ButtonWidth " h26", "Cancel")
     cancelButton.OnEvent("Click", CloseEditor)
 
     ShowEditorWindow()
@@ -775,9 +815,9 @@ CreateEditorWindow(title) {
     EditorReplacedGui := EditorGui
     ; Owned by the launcher so it always stays in front of it (modal dialog).
     EditorGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +Owner" MainGui.Hwnd, title)
-    EditorGui.SetFont("s10", "Segoe UI")
-    EditorGui.MarginX := 16
-    EditorGui.MarginY := 16
+    EditorGui.SetFont("s9", "Segoe UI")
+    EditorGui.MarginX := 12
+    EditorGui.MarginY := 12
     EditorGui.OnEvent("Escape", CloseEditor)
     EditorGui.OnEvent("Close", CloseEditor)
     SetWindowIcon(EditorGui)
@@ -902,7 +942,7 @@ ConfirmShortcut(hotkeyValue) {
 
 SaveEditor(*) {
     global Favorites, EditingIndex, EditorName, EditorTarget
-    global EditorGui, EditorTypeValue, EditorHotkey, SearchBox
+    global EditorGui, EditorTypeValue, EditorHotkey, EditorKeepOpen, SearchBox
     EditorGui.Opt("+OwnDialogs")
 
     name := Trim(EditorName.Value)
@@ -911,11 +951,12 @@ SaveEditor(*) {
     hotkeyValue := NormalizeHotkey(EditorHotkey.Value)
 
     if target = "" {
-        MsgBox(
-            type = "link" ? "Enter a web address." : "Enter a location, or click Change... to choose one.",
-            "Favorite Launcher",
-            "Icon!"
-        )
+        switch type {
+            case "link": message := "Enter a web address."
+            case "command": message := "Enter a command."
+            default: message := "Enter a location, or click Change... to choose one."
+        }
+        MsgBox(message, "Favorite Launcher", "Icon!")
         EditorTarget.Focus()
         return
     }
@@ -935,7 +976,8 @@ SaveEditor(*) {
         Name: name,
         Target: target,
         Type: type,
-        Hotkey: hotkeyValue
+        Hotkey: hotkeyValue,
+        KeepOpen: type = "command" ? EditorKeepOpen.Value = 1 : true
     }
 
     UnregisterAllHotkeys()
@@ -955,18 +997,48 @@ SaveEditor(*) {
     SearchBox.Focus()
 }
 
+; Small icon handle for a favorite type, as shown on the Add buttons. Kept for the life of the app.
+GetTypeIcon(type) {
+    static icons := Map()
+    static sampleTargets := Map("folder", "folder", "document", "document", "program", "program.exe")
+
+    if !icons.Has(type)
+        icons[type] := GetShellIconHandle(sampleTargets.Has(type) ? sampleTargets[type] : "", type)
+    return icons[type]
+}
+
+; Whether a command favorite keeps its console window open (older favorites have no setting).
+GetKeepOpen(favorite) {
+    return !favorite.HasOwnProp("KeepOpen") || favorite.KeepOpen
+}
+
+; The cmd line that runs a command. cmd strips the outer quotes, so quotes inside the command stay intact.
+GetCommandRunLine(commandLine, keepOpen) {
+    return A_ComSpec (keepOpen ? " /k " : " /c ") '"' commandLine '"'
+}
+
+RunCommand(favorite) {
+    keepOpen := GetKeepOpen(favorite)
+    Run(GetCommandRunLine(favorite.Target, keepOpen), EnvGet("USERPROFILE"), keepOpen ? "" : "Hide")
+}
+
 TypeToLabel(type) {
     switch type {
         case "folder": return "Folder"
         case "document": return "Document"
         case "program": return "Program"
         case "link": return "Web address"
+        case "command": return "Command"
         default: return "Favorite"
     }
 }
 
 GetDefaultName(target, type) {
+    static MaxCommandName := 40
     target := Trim(target)
+
+    if type = "command"
+        return StrLen(target) <= MaxCommandName ? target : RTrim(SubStr(target, 1, MaxCommandName - 1)) "…"
 
     if type = "link" {
         cleanUrl := RegExReplace(target, "i)^[a-z][a-z0-9+.-]*://")
@@ -1323,6 +1395,7 @@ LoadFavorites() {
         target := IniRead(ConfigFile, section, "Target", "")
         type := IniRead(ConfigFile, section, "Type", "")
         hotkeyValue := IniRead(ConfigFile, section, "Hotkey", "")
+        keepOpen := IniRead(ConfigFile, section, "KeepOpen", "1") != "0"
 
         if name = "" || target = ""
             continue
@@ -1333,7 +1406,8 @@ LoadFavorites() {
             Name: name,
             Target: target,
             Type: type,
-            Hotkey: hotkeyValue
+            Hotkey: hotkeyValue,
+            KeepOpen: keepOpen
         })
     }
 
@@ -1355,6 +1429,8 @@ SaveFavorites() {
         IniWrite(favorite.Target, ConfigFile, section, "Target")
         IniWrite(favorite.Type, ConfigFile, section, "Type")
         IniWrite(favorite.Hotkey, ConfigFile, section, "Hotkey")
+        if favorite.Type = "command"
+            IniWrite(GetKeepOpen(favorite) ? 1 : 0, ConfigFile, section, "KeepOpen")
     }
 }
 
@@ -1363,6 +1439,7 @@ IsValidFavoriteType(type) {
         || type = "document"
         || type = "program"
         || type = "link"
+        || type = "command"
 }
 
 SortFavorites() {
