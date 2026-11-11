@@ -82,6 +82,9 @@ RunAllTests([
     Test_Command_SaveAndLoadKeepsKeepOpen,
     Test_Command_RunLineUsesCmd,
     Test_GetDefaultName_FromCommand,
+
+    ; Tray menu
+    Test_TrayMenu_ItemsAndSingleClickOpens,
 ])
 
 ; ---------------------------------------------------------------------------
@@ -684,7 +687,36 @@ Test_GetDefaultName_FromCommand() {
 }
 
 ; ---------------------------------------------------------------------------
+; Tray menu
+
+Test_TrayMenu_ItemsAndSingleClickOpens() {
+    ConfigureTrayMenu()
+    AssertEqual(GetMenuItemNames(A_TrayMenu.Handle), "Open launcher|-|What's new|About|-|Exit", "tray menu items")
+    AssertEqual(DllCall("GetMenuDefaultItem", "Ptr", A_TrayMenu.Handle, "UInt", 1, "UInt", 0, "Int"), 0,
+        "Open launcher is the default (bold) item")
+    AssertEqual(A_TrayMenu.ClickCount, 1, "a single click on the tray icon opens the launcher")
+    AssertTrue(InStr(ChangelogUrl, "github.com/kennethaar/FavoriteLauncher") && InStr(ChangelogUrl, "CHANGELOG.md"),
+        "What's new opens the changelog on GitHub: " ChangelogUrl)
+}
+
+; ---------------------------------------------------------------------------
 ; Helpers
+
+; Menu item texts joined by "|"; separators are "-".
+GetMenuItemNames(menuHandle) {
+    names := []
+    loop DllCall("GetMenuItemCount", "Ptr", menuHandle, "Int") {
+        length := DllCall("GetMenuStringW", "Ptr", menuHandle, "UInt", A_Index - 1, "Ptr", 0, "Int", 0, "UInt", 0x400, "Int")
+        text := Buffer((length + 1) * 2, 0)
+        DllCall("GetMenuStringW", "Ptr", menuHandle, "UInt", A_Index - 1, "Ptr", text, "Int", length + 1, "UInt", 0x400)
+        name := StrGet(text, "UTF-16")
+        names.Push(name = "" ? "-" : name)
+    }
+    result := ""
+    for name in names
+        result .= (A_Index > 1 ? "|" : "") name
+    return result
+}
 
 ; Font size in points that a control is drawn with.
 GetFontPoints(control) {

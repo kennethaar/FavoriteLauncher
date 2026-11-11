@@ -3,6 +3,14 @@
 All notable changes to FavoriteLauncher. Versions follow [Semantic Versioning](https://semver.org/):
 MAJOR for incompatible changes (for example to the ini format), MINOR for new features, PATCH for bug fixes.
 
+## [Unreleased]
+
+### Added
+- Tray menu item **What's new** opens the changelog. (#14)
+
+### Changed
+- A single click on the tray icon opens the launcher. The first tray item is now called **Open launcher**. (#14)
+
 ## [1.3.0] - 2026-11-11
 
 ### Added

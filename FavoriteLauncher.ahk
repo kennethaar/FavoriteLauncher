@@ -25,6 +25,7 @@ global EditorKeepOpen := ""
 global EditingIndex := 0, SelectedRow := 0
 global FavoriteImageList := 0, IconCache := Map()
 global AppIconFile := AppDir "\FavoriteLauncher.ico"
+global ChangelogUrl := "https://github.com/kennethaar/FavoriteLauncher/blob/main/CHANGELOG.md"
 
 ; Start only when run directly. The test suite includes this file without starting the app.
 if A_IsCompiled || A_LineFile = A_ScriptFullPath
@@ -54,12 +55,21 @@ StartLauncher() {
 
 ConfigureTrayMenu() {
     A_TrayMenu.Delete()
-    A_TrayMenu.Add("Open", ShowLauncher)
-    A_TrayMenu.Default := "Open"
+    A_TrayMenu.Add("Open launcher", ShowLauncher)
+    A_TrayMenu.Default := "Open launcher"
+    A_TrayMenu.ClickCount := 1    ; a single click on the tray icon opens the launcher
     A_TrayMenu.Add()
+    A_TrayMenu.Add("What's new", OpenChangelog)
     A_TrayMenu.Add("About", ShowAbout)
     A_TrayMenu.Add()
     A_TrayMenu.Add("Exit", ExitLauncher)
+}
+
+OpenChangelog(*) {
+    global ChangelogUrl
+    try Run(ChangelogUrl)
+    catch Error as err
+        MsgBox("Could not open the changelog:`n`n" err.Message, "Favorite Launcher", "Iconx 0x40000")
 }
 
 ShowAbout(*) {
