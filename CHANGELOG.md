@@ -6,10 +6,10 @@ MAJOR for incompatible changes (for example to the ini format), MINOR for new fe
 ## [1.5.0] - 2026-11-12
 
 ### Added
-- **Shift+Enter** on a command puts it on the command line of the terminal you opened the launcher from (Windows Terminal, Command Prompt or PowerShell), without running it. The footer says when this is possible; with no terminal, Shift+Enter works like Enter. (#ISSUE)
+- **Shift+Enter** on a command puts it on the command line of the terminal you opened the launcher from (Windows Terminal, Command Prompt or PowerShell), without running it. The footer says when this is possible; with no terminal, Shift+Enter works like Enter. (#17)
 
 ### Changed
-- The footer says **Enter to run** for commands. (#ISSUE)
+- The footer says **Enter to run** for commands. (#17)
 
 ## [1.4.1] - 2026-11-12
 
