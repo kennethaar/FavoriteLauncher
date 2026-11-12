@@ -1,6 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-;@Ahk2Exe-SetVersion 1.4.0
+;@Ahk2Exe-SetVersion 1.4.1
 ;@Ahk2Exe-SetMainIcon FavoriteLauncher.ico
 ;@Ahk2Exe-SetDescription FavoriteLauncher
 ;@Ahk2Exe-SetProductName FavoriteLauncher
@@ -8,7 +8,7 @@
 SendMode("Input")
 
 ; Semantic version (MAJOR.MINOR.PATCH). Keep in sync with ;@Ahk2Exe-SetVersion and CHANGELOG.md.
-global AppVersion := "1.4.0"
+global AppVersion := "1.4.1"
 
 ; Folder of this file, also when the test suite includes it from tests\.
 global AppDir := A_IsCompiled ? A_ScriptDir : RegExReplace(A_LineFile, "\\[^\\]+$")
@@ -72,6 +72,7 @@ ConfigureTrayMenu() {
     A_TrayMenu.Add("What's new", OpenChangelog)
     A_TrayMenu.Add("About", ShowAbout)
     A_TrayMenu.Add()
+    A_TrayMenu.Add("Restart", (*) => Reload())
     A_TrayMenu.Add("Exit", ExitLauncher)
 }
 

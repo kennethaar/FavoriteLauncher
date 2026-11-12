@@ -703,7 +703,7 @@ Test_GetDefaultName_FromCommand() {
 
 Test_TrayMenu_ItemsAndSingleClickOpens() {
     ConfigureTrayMenu()
-    AssertEqual(GetMenuItemNames(A_TrayMenu.Handle), "Open launcher|-|Start with Windows|-|What's new|About|-|Exit",
+    AssertEqual(GetMenuItemNames(A_TrayMenu.Handle), "Open launcher|-|Start with Windows|-|What's new|About|-|Restart|Exit",
         "tray menu items")
     AssertEqual(DllCall("GetMenuDefaultItem", "Ptr", A_TrayMenu.Handle, "UInt", 1, "UInt", 0, "Int"), 0,
         "Open launcher is the default (bold) item")
@@ -757,7 +757,14 @@ Test_Welcome_UncheckedRemovesShortcut() {
     WelcomeStartup.Value := 0
     WelcomeOpenLauncher()
     try {
-        AssertFalse(FileExist(StartupShortcut), "unchecked turns it off")
+        if FileExist(StartupShortcut) {
+            ; Intermittent failure (#16): record what the file looks like to find the cause.
+            attributes := FileExist(StartupShortcut)
+            Sleep(500)
+            throw Error("unchecked turns it off: shortcut still there (attributes " attributes
+                "), after 500 ms: " (FileExist(StartupShortcut) ? "still there" : "gone")
+                ", dialog: [" DialogText "]")
+        }
         AssertTrue(DllCall("IsWindowVisible", "Ptr", MainGui.Hwnd), "Open launcher shows the launcher")
     } finally {
         MainGui.Hide()
