@@ -21,7 +21,7 @@ You need Windows 10 or 11.
 
 **Script version:** install [AutoHotkey v2](https://www.autohotkey.com/), download this repository, and double-click `FavoriteLauncher.ahk`.
 
-**Exe version:** build `FavoriteLauncher.exe` yourself (see [Building](#building)). It does not need AutoHotkey installed.
+**Exe version:** download `FavoriteLauncher.exe` from the [latest release](https://github.com/kennethaar/FavoriteLauncher/releases/latest), or build it yourself (see [Building](#building)). It does not need AutoHotkey installed.
 
 Run either the script or the exe, not both: they use the same shortcut.
 
