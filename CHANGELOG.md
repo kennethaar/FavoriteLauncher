@@ -3,6 +3,14 @@
 All notable changes to FavoriteLauncher. Versions follow [Semantic Versioning](https://semver.org/):
 MAJOR for incompatible changes (for example to the ini format), MINOR for new features, PATCH for bug fixes.
 
+## [1.5.0] - 2026-11-12
+
+### Added
+- **Shift+Enter** on a command puts it on the command line of the terminal you opened the launcher from (Windows Terminal, Command Prompt or PowerShell), without running it. The footer says when this is possible; with no terminal, Shift+Enter works like Enter. (#ISSUE)
+
+### Changed
+- The footer says **Enter to run** for commands. (#ISSUE)
+
 ## [1.4.1] - 2026-11-12
 
 ### Fixed

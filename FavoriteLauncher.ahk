@@ -1,6 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-;@Ahk2Exe-SetVersion 1.4.1
+;@Ahk2Exe-SetVersion 1.5.0
 ;@Ahk2Exe-SetMainIcon FavoriteLauncher.ico
 ;@Ahk2Exe-SetDescription FavoriteLauncher
 ;@Ahk2Exe-SetProductName FavoriteLauncher
@@ -8,7 +8,7 @@
 SendMode("Input")
 
 ; Semantic version (MAJOR.MINOR.PATCH). Keep in sync with ;@Ahk2Exe-SetVersion and CHANGELOG.md.
-global AppVersion := "1.4.1"
+global AppVersion := "1.5.0"
 
 ; Folder of this file, also when the test suite includes it from tests\.
 global AppDir := A_IsCompiled ? A_ScriptDir : RegExReplace(A_LineFile, "\\[^\\]+$")
@@ -31,6 +31,8 @@ global WelcomeGui := "", WelcomeStartup := ""
 global LatestReleaseApi := "https://api.github.com/repos/kennethaar/FavoriteLauncher/releases/latest"
 global UpdateBannerText := "", UpdateBannerLink := "", UpdateBannerClose := ""
 global UpdateVersion := "", UpdateUrl := "", UpdateRequest := ""
+; The window that was active before the launcher opened, and its terminal name ("" = not a terminal).
+global PreviousWindow := 0, PreviousTerminalName := ""
 
 ; Start only when run directly. The test suite includes this file without starting the app.
 if A_IsCompiled || A_LineFile = A_ScriptFullPath
@@ -320,6 +322,7 @@ ShowAbout(*) {
         "Ctrl+Alt+Space  Open launcher`n"
         "Type  Find a favorite`n"
         "Enter  Open selected favorite`n"
+        "Shift+Enter  Insert command into terminal`n"
         "F2  Edit selected favorite`n"
         "Delete  Remove selected favorite"
     )
@@ -510,7 +513,12 @@ SetEditPlaceholder(editControl, placeholder) {
 }
 
 ShowLauncher(*) {
-    global MainGui, SearchBox
+    global MainGui, SearchBox, PreviousWindow, PreviousTerminalName
+    activeWindow := WinExist("A")
+    if activeWindow != MainGui.Hwnd {
+        PreviousWindow := activeWindow
+        PreviousTerminalName := GetTerminalName(activeWindow)
+    }
     SearchBox.Value := ""
     RefreshList()
     MainGui.Show("AutoSize Center")
@@ -797,7 +805,7 @@ GetSelectedOriginalIndex() {
 }
 
 UpdateFooter(*) {
-    global VisibleFavorites, SelectedRow, FooterText
+    global VisibleFavorites, SelectedRow, FooterText, PreviousTerminalName
 
     if VisibleFavorites.Length = 0 {
         FooterText.Text := "No matches"
@@ -806,7 +814,15 @@ UpdateFooter(*) {
 
     SelectedRow := Max(1, Min(SelectedRow, VisibleFavorites.Length))
     favorite := VisibleFavorites[SelectedRow].Favorite
-    FooterText.Text := TypeToLabel(favorite.Type) "  |  Enter to open"
+    if favorite.Type != "command" {
+        FooterText.Text := TypeToLabel(favorite.Type) "  |  Enter to open"
+        return
+    }
+
+    footer := "Command  |  Enter to run"
+    if PreviousTerminalName != ""
+        footer .= "  |  Shift+Enter to insert in " PreviousTerminalName
+    FooterText.Text := footer
 }
 
 OpenSelected(*) {
@@ -1257,6 +1273,55 @@ GetCommandRunLine(commandLine, keepOpen) {
 RunCommand(favorite) {
     keepOpen := GetKeepOpen(favorite)
     Run(GetCommandRunLine(favorite.Target, keepOpen), EnvGet("USERPROFILE"), keepOpen ? "" : "Hide")
+}
+
+; The name shown in the footer for a terminal window, or "" if the window is not a terminal.
+TerminalNameFor(className, processName) {
+    if className = "CASCADIA_HOSTING_WINDOW_CLASS"
+        return "Windows Terminal"
+    if className != "ConsoleWindowClass"
+        return ""
+
+    switch StrLower(processName) {
+        case "cmd.exe": return "Command Prompt"
+        case "powershell.exe", "pwsh.exe": return "PowerShell"
+        default: return "the console"
+    }
+}
+
+GetTerminalName(hwnd) {
+    if !hwnd || !WinExist("ahk_id " hwnd)
+        return ""
+    try return TerminalNameFor(WinGetClass(hwnd), WinGetProcessName(hwnd))
+    catch
+        return ""
+}
+
+; Shift+Enter: puts the selected command on the command line of the terminal the launcher was
+; opened from, without pressing Enter. Anything else (or no terminal) opens like Enter.
+InsertSelectedCommand(*) {
+    global MainGui, Favorites, PreviousWindow, PreviousTerminalName
+    index := GetSelectedOriginalIndex()
+    if index = 0
+        return
+
+    favorite := Favorites[index]
+    if favorite.Type != "command" || PreviousTerminalName = "" {
+        OpenSelected()
+        return
+    }
+
+    MainGui.Hide()
+    if !WinExist("ahk_id " PreviousWindow) {
+        TrayTip(PreviousTerminalName " is closed, so the command was not inserted.", "Favorite Launcher", "Iconx")
+        return
+    }
+    WinActivate(PreviousWindow)
+    if !WinWaitActive(PreviousWindow, , 2) {
+        TrayTip("Could not switch to " PreviousTerminalName ", so the command was not inserted.", "Favorite Launcher", "Iconx")
+        return
+    }
+    SendText(favorite.Target)    ; SendText: literal text, safe with any keyboard layout
 }
 
 TypeToLabel(type) {
@@ -1787,6 +1852,8 @@ ShowOnboardingIfNeeded() {
 #HotIf IsLauncherActive()
 Enter::OpenSelected()
 NumpadEnter::OpenSelected()
++Enter::InsertSelectedCommand()
++NumpadEnter::InsertSelectedCommand()
 Down::MoveSelection(1)
 Up::MoveSelection(-1)
 F2::EditSelected()

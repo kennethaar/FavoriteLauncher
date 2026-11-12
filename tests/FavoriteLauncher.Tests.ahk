@@ -97,6 +97,15 @@ RunAllTests([
     Test_ShouldShowUpdate_OnlyNewerAndNotDismissed,
     Test_UpdateBanner_ShowsAboveSearch,
     Test_UpdateBanner_DismissHidesIt,
+
+    ; Shift+Enter inserts a command into the terminal you came from
+    Test_TerminalName_RecognisesTerminals,
+    Test_ShowLauncher_RemembersPreviousWindow,
+    Test_Footer_InsertHintOnlyForCommandWithTerminal,
+    Test_Footer_InsertHintFitsOnOneLine,
+    Test_ShiftEnter_InsertsCommandWithoutRunningIt,
+    Test_ShiftEnter_WithoutTerminalDoesNotInsert,
+    Test_About_ListsShiftEnter,
 ])
 
 ; ---------------------------------------------------------------------------
@@ -837,7 +846,124 @@ Test_UpdateBanner_DismissHidesIt() {
 }
 
 ; ---------------------------------------------------------------------------
+; Shift+Enter inserts a command into the terminal you came from
+
+Test_TerminalName_RecognisesTerminals() {
+    AssertEqual(TerminalNameFor("CASCADIA_HOSTING_WINDOW_CLASS", "WindowsTerminal.exe"), "Windows Terminal", "Windows Terminal")
+    AssertEqual(TerminalNameFor("ConsoleWindowClass", "cmd.exe"), "Command Prompt", "classic cmd")
+    AssertEqual(TerminalNameFor("ConsoleWindowClass", "powershell.exe"), "PowerShell", "Windows PowerShell")
+    AssertEqual(TerminalNameFor("ConsoleWindowClass", "pwsh.exe"), "PowerShell", "PowerShell 7")
+    AssertEqual(TerminalNameFor("ConsoleWindowClass", "python.exe"), "the console", "other console program")
+    AssertEqual(TerminalNameFor("Notepad", "notepad.exe"), "", "not a terminal")
+    AssertEqual(GetTerminalName(0), "", "no window")
+}
+
+Test_ShowLauncher_RemembersPreviousWindow() {
+    global PreviousWindow
+    SetUpLauncher(3)
+    target := MakeTargetWindow()
+    try {
+        ShowLauncher()
+        AssertEqual(PreviousWindow, target.Gui.Hwnd, "the window that was active before the launcher")
+        HideLauncher()
+    } finally {
+        target.Gui.Destroy()
+    }
+}
+
+Test_Footer_InsertHintOnlyForCommandWithTerminal() {
+    global Favorites, PreviousTerminalName
+    SetUpLauncher(0)
+    Favorites := [MakeFavorite("Git status", "git status", "command"), MakeFavorite("Windows", A_WinDir)]
+
+    PreviousTerminalName := "Windows Terminal"
+    RefreshList()
+    AssertEqual(FooterText.Text, "Command  |  Enter to run  |  Shift+Enter to insert in Windows Terminal", "command, came from a terminal")
+    MoveSelection(1)
+    AssertEqual(FooterText.Text, "Folder  |  Enter to open", "folder: no insert hint")
+
+    PreviousTerminalName := ""
+    RefreshList()
+    AssertEqual(FooterText.Text, "Command  |  Enter to run", "command, no terminal: no insert hint")
+}
+
+Test_Footer_InsertHintFitsOnOneLine() {
+    global Favorites, PreviousTerminalName
+    SetUpLauncher(0)
+    Favorites := [MakeFavorite("Git status", "git status", "command")]
+    FooterText.GetPos(, , &footerWidth, &footerHeight)
+    for name in ["Windows Terminal", "Command Prompt", "PowerShell", "the console"] {
+        PreviousTerminalName := name
+        RefreshList()
+        textWidth := MeasureText(FooterText.Text).W
+        AssertTrue(textWidth <= footerWidth, "hint for " name " (" textWidth " px) fits in " footerWidth " px")
+    }
+    AssertTrue(MeasureText("Ag").H <= footerHeight, "footer shows a full line of text")
+}
+
+Test_ShiftEnter_InsertsCommandWithoutRunningIt() {
+    global Favorites, PreviousWindow, PreviousTerminalName
+    SetUpLauncher(0)
+    Favorites := [MakeFavorite("Git status", "git status", "command")]
+    target := MakeTargetWindow()
+    try {
+        ShowLauncher()
+        PreviousTerminalName := "Test terminal"    ; ShowLauncher found no real terminal
+        UpdateFooter()
+        InsertSelectedCommand()
+        AssertFalse(DllCall("IsWindowVisible", "Ptr", MainGui.Hwnd), "launcher hidden")
+        AssertTrue(WinActive("ahk_id " target.Gui.Hwnd), "back in the terminal")
+        AssertEqual(target.Edit.Value, "git status", "command inserted, Enter not pressed")
+    } finally {
+        target.Gui.Destroy()
+    }
+}
+
+Test_ShiftEnter_WithoutTerminalDoesNotInsert() {
+    global Favorites, PreviousTerminalName
+    SetUpLauncher(0)
+    Favorites := [MakeFavorite("Nothing", "rem", "command", "", false)]    ; runs hidden and does nothing
+    target := MakeTargetWindow()
+    try {
+        ShowLauncher()
+        AssertEqual(PreviousTerminalName, "", "the test window is not a terminal")
+        InsertSelectedCommand()
+        AssertFalse(DllCall("IsWindowVisible", "Ptr", MainGui.Hwnd), "launcher hidden (ran like Enter)")
+        AssertEqual(target.Edit.Value, "", "nothing typed into a window that is not a terminal")
+    } finally {
+        target.Gui.Destroy()
+    }
+}
+
+Test_About_ListsShiftEnter() {
+    ShowAbout()
+    try AssertTrue(InStr(GetGuiText(AboutGui), "Shift+Enter  Insert command into terminal"), "About lists Shift+Enter")
+    finally CloseAbout()
+}
+
+; ---------------------------------------------------------------------------
 ; Helpers
+
+; An active window with a multi-line edit box, standing in for a terminal.
+MakeTargetWindow() {
+    targetGui := Gui("+AlwaysOnTop", "Test terminal")
+    targetEdit := targetGui.AddEdit("w300 h80 Multi WantReturn")
+    targetGui.Show()
+    WinActivate(targetGui)
+    WinWaitActive(targetGui, , 2)
+    targetEdit.Focus()
+    return {Gui: targetGui, Edit: targetEdit}
+}
+
+; Size in pixels ({W, H}) of one line of text in the launcher font.
+MeasureText(text) {
+    measureGui := Gui()
+    measureGui.SetFont("s9", "Segoe UI")
+    label := measureGui.AddText(, text)
+    label.GetPos(, , &width, &height)
+    measureGui.Destroy()
+    return {W: width, H: height}
+}
 
 IsVisibleControl(control) {
     static WS_VISIBLE := 0x10000000
